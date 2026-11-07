@@ -21,13 +21,13 @@
 | `itemconfigure` / `itemconfig` | ✅ (M5) | 支持 tag/id 并集设置；无选项时报告 dict |
 | `itemcget` | ✅ (M5) | 返回首项匹配值；颜色以 #rrggbb 返回 |
 | `config` / `configure` | ✅ (M2/M5) | widget 级选项已实现、M5 验收 |
-| `cget` | ⬜ (M5) | |
+| `cget` | ✅ (M5) | 读取 widget 级选项 |
 | `bbox` | ✅ (M4/M5) | 多 item 取并集；无匹配返回空串 |
-| `find_withtag` / `find_all` / `find_closest` / `find_overlapping` / `find_enclosed` | ⬜ (M6) | |
-| `addtag_withtag` / `addtag_all` / `addtag_overlapping` / `dtag` | ⬜ (M6) | |
-| `gettags` | ⬜ (M6) | |
-| `tag_bind` / `bind` | ⬜ (M6) | C++ core 解析绑定 |
-| `tag_raise` / `tag_lower` | ⬜ (M6) | z-order |
+| `find_withtag` / `find_all` / `find_closest` / `find_overlapping` / `find_enclosed` | ✅ (M6) | `find` 支持 withtag/all/above/below/closest/overlapping/enclosed；Tk 4 拼写 `findwithtag`/`findall`/`findclosest` 亦可用 |
+| `addtag_withtag` / `addtag_all` / `addtag_overlapping` / `dtag` | ✅ (M6) | `addtag` 支持全部检索命令；`dtag` 支持 `dtag item tag` 与 `dtag tag` 两种写法 |
+| `gettags` | ✅ (M6) | 按添加顺序返回 |
+| `tag_bind` / `bind` | ✅ (M6) | C++ core 解析绑定：命中测试在 core，事件模式匹配走 Tk binding table；事件类型与 Tk 的 canvas 一致（key/button/motion/enter/leave/virtual）；支持 `add=True` 多重绑定，返回回调 id，可单独 `unbind` |
+| `tag_raise` / `tag_lower` | ✅ (M6) | `raise`/`lower` 成组移动，保持相对顺序 |
 | `xview` / `yview` | ⬜ (M7) | scrollregion + scrollcommand |
 | `scan_mark` / `scan_dragto` | ⬜ (M7) | |
 | `postscript` | ❌ | 打印路径不计划 |
@@ -59,7 +59,7 @@ rectangle/oval 不开放 -smooth/-splinesteps。
 
 ## 行为差异（相对 tkinter.Canvas）
 
-- 命中测试容差 `-closeenough` 默认 2.0（与 Tk 一致）。
+- 命中测试容差 `-closeenough` 默认 **1.0**
 - 坐标单位与像素 1:1（DPI 缩放完善见 Win32Dpi，0.x 暂不做整体缩放）。
 - 事件属性对象（`event.x` 等）：`tag_bind` 的 Python 回调签名由 Python 层
   适配（M6 完成后更新本文档）。
@@ -67,3 +67,38 @@ rectangle/oval 不开放 -smooth/-splinesteps。
 - `-dashoffset` 按 canvas 单位解析（Tk 的 `<length>` 单位词尾（`c`/`i`/`m`/`p`）不支持，按纯数字解析）。
 - `-smooth` 平滑只改变绘制与命中测试用的离散曲线点；`coords` 仍返回原始顶点。
 - 平滑多边形的 bbox 按原始顶点计算（Tk 行为：曲线不参与 bbox）。
+
+### M6（tag / find / bind）的具体差异
+
+命中测试规则（与 Tk 逐点比对确认一致）：
+
+- 判定量是「点到 item **路径**（描边中心线）的距离」，再减去半个描边宽度
+  （描边覆盖路径两侧各半个宽度）；结果 ≤ `-closeenough` 即命中。
+- **有填充**的形状内部整体命中；**无填充**的形状只有靠近描边处才命中
+  （矩形/椭圆）。多边形例外：只要点在多边形内部就算命中（与填充无关，
+  与 Tk 的 `TkPolygonToPoint` 一致）。
+- `find closest` 用的是**未减去描边宽度**的路径距离（与 Tk 的 `ItemPoint` 一致），
+  `halo` 先从距离里减掉、最低为 0；距离并列时顶层 item 优先。
+  `find closest` 只返回**一个** item。
+- `find above` / `find below` 与 Tk 一致，只返回紧邻的一个 item。
+- `find overlapping` / `find enclosed` 按 item 的 **bbox** 判定（与 Tk 一致）。
+- tag 绑定的派发顺序：`all` → item 的 tag（**按添加顺序**）→ item 本身；
+  与 Tk 的 canvas 完全一致。指针不在任何 item 上时**不派发**（`all` 也不例外），
+  但键盘事件例外：没有当前 item 时只派发 `all`。
+- item 下的指针位置会带上 `current` tag（Tk 行为）。
+- 键盘事件走「当前 item」而非 Tk 的「键盘焦点 item」（`focus` 命令尚未实现，
+  属 M9/M10 范围）。
+- `bind` 支持 tag 与 item id；item id 的绑定在该 item 被删除后自动失效
+  （item id 不复用，因此不会串到别的 item 上）。
+- 多重绑定：脚本以 `+` 开头时**追加**到已有绑定之后（Tk 的语义），按注册顺序
+  依次执行；不带 `+` 则替换整个绑定。删除一个不存在的绑定不报错。
+- tag 绑定只接受 Tk 的 canvas 允许的事件类型（key / button / motion /
+  enter / leave / virtual），其余（如 `<FocusIn>`）按 Tk 的原文报错：
+  `requested illegal events; only key, button, motion, enter, leave, and
+  virtual events may be used`。
+- 虚拟事件（`<<Foo>>`）的 tag 绑定与 Tk 一致：**可以被登记，但永远不会触发**
+  （Tk 把虚拟事件投递给窗口，而不是画布的 tag）。
+- Python 层：`tag_bind` / `bind` 传入回调时返回该回调的 id；
+  `tag_unbind(tag, sequence, funcid)` / `unbind(sequence, funcid)` 只移除这一个
+  回调（同一 sequence 的其它回调保留），不传 `funcid` 则清掉整个绑定——
+  与 tkinter 的 `_unbind` 行为一致。

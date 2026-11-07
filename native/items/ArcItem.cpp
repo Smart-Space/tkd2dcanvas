@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <limits>
 #include <string>
 
 #include "tkd2dcanvas/HitTest.h"
@@ -79,24 +80,30 @@ std::vector<Point> ArcItem::SampleArc() const {
     return points;
 }
 
-bool ArcItem::HitTest(Point p, double tolerance) const {
+double ArcItem::DistanceTo(Point p) const {
     const std::vector<Point> arc = SampleArc();
-    if (arc.size() < 2) return false;
+    if (arc.size() < 2) return CanvasItem::DistanceTo(p);
 
-    const auto nearArc = [&]() {
+    const auto distanceToArc = [&]() {
+        double best = std::numeric_limits<double>::max();
         for (std::size_t i = 0; i + 1 < arc.size(); ++i) {
-            if (HitTest::DistancePointToSegment(p, arc[i], arc[i + 1]) <= tolerance) return true;
+            best = std::min(best, HitTest::DistancePointToSegment(p, arc[i], arc[i + 1]));
         }
-        return false;
+        return best;
     };
 
     switch (style_) {
         case ArcStyle::Arc:
-            return nearArc();
+            return distanceToArc();
         case ArcStyle::Chord: {
-            if (HitTest::PointInPolygon(p, arc)) return true;
-            if (HitTest::DistancePointToSegment(p, arc.back(), arc.front()) <= tolerance) return true;
-            return nearArc();
+            if (HitTest::PointInPolygon(p, arc)) {
+                // Inside the chord: only a filled arc is hit everywhere.
+                if (Style().fill) return 0.0;
+                const double chord = HitTest::DistancePointToSegment(p, arc.back(), arc.front());
+                return std::min(chord, distanceToArc());
+            }
+            const double chord = HitTest::DistancePointToSegment(p, arc.back(), arc.front());
+            return std::min(chord, distanceToArc());
         }
         case ArcStyle::PieSlice: {
             const BBox box = GetBBox();
@@ -104,13 +111,21 @@ bool ArcItem::HitTest(Point p, double tolerance) const {
             wedge.reserve(arc.size() + 1);
             wedge.push_back(Point{box.CenterX(), box.CenterY()});
             wedge.insert(wedge.end(), arc.begin(), arc.end());
-            if (HitTest::PointInPolygon(p, wedge)) return true;
-            if (HitTest::DistancePointToSegment(p, wedge.front(), arc.front()) <= tolerance) return true;
-            if (HitTest::DistancePointToSegment(p, wedge.front(), arc.back()) <= tolerance) return true;
-            return nearArc();
+            if (HitTest::PointInPolygon(p, wedge)) {
+                // Inside the pie slice: only a filled arc is hit everywhere.
+                if (Style().fill) return 0.0;
+                double best = distanceToArc();
+                best = std::min(best, HitTest::DistancePointToSegment(p, wedge.front(), arc.front()));
+                best = std::min(best, HitTest::DistancePointToSegment(p, wedge.front(), arc.back()));
+                return best;
+            }
+            double best = distanceToArc();
+            best = std::min(best, HitTest::DistancePointToSegment(p, wedge.front(), arc.front()));
+            best = std::min(best, HitTest::DistancePointToSegment(p, wedge.front(), arc.back()));
+            return best;
         }
     }
-    return false;
+    return CanvasItem::DistanceTo(p);
 }
 
 void ArcItem::Draw(Renderer& renderer) const {

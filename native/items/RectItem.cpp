@@ -1,6 +1,7 @@
 #include "RectItem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 RectItem::RectItem(Id id, double x1, double y1, double x2, double y2)
@@ -16,6 +17,29 @@ BBox RectItem::GetBBox() const {
 
 void RectItem::Translate(double dx, double dy) {
     x1_ += dx; x2_ += dx; y1_ += dy; y2_ += dy;
+}
+
+double RectItem::DistanceTo(Point p) const {
+    const BBox box = GetBBox();
+    if (!box.IsValid()) return 0.0;
+
+    const double dx = (p.x < box.left) ? box.left - p.x
+                     : (p.x > box.right) ? p.x - box.right
+                                         : 0.0;
+    const double dy = (p.y < box.top) ? box.top - p.y
+                     : (p.y > box.bottom) ? p.y - box.bottom
+                                          : 0.0;
+
+    // Outside the rectangle: the distance to the rectangle.
+    if (dx > 0.0 || dy > 0.0) {
+        return std::sqrt(dx * dx + dy * dy);
+    }
+
+    // Inside: a filled rectangle is hit everywhere, an unfilled one only
+    // near its outline (Tk behaves the same way).
+    if (Style().fill) return 0.0;
+    return std::min(std::min(p.x - box.left, box.right - p.x),
+                    std::min(p.y - box.top, box.bottom - p.y));
 }
 
 bool RectItem::SetCoordinates(const std::vector<double>& coords) {

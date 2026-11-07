@@ -18,7 +18,7 @@ public:
 
     BBox GetBBox() const override;
     void Translate(double dx, double dy) override;
-    bool HitTest(Point p, double tolerance) const override;
+    double DistanceTo(Point p) const override;
     void Draw(Renderer& renderer) const override;
 
     const std::vector<Point>& Points() const { return points_; }

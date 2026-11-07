@@ -1,0 +1,272 @@
+# bind.test �?M6: tag bindings (hit test in the C++ core, Tcl script dispatch)
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP bind.test: $err"
+    exit 0
+}
+
+tkd2dcanvas .c -width 320 -height 240
+pack .c
+update
+
+# Removes every binding the tests below create.
+proc clearBindings {} {
+    foreach {tag sequence} {all <Button-1> all <ButtonRelease-1> all <KeyPress-a>
+                            all <Motion> blue <Button-1> blue <ButtonRelease-1>
+                            blue <Motion> blue <KeyPress-a>} {
+        catch {.c bind $tag $sequence {}}
+    }
+}
+
+test bind-set-and-query "a binding can be set and read back" -body {
+    .c bind node <Button-1> {puts clicked}
+    .c bind node <Button-1>
+} -result {puts clicked}
+
+test bind-unknown-tag "querying an unbound sequence returns an empty string" -body {
+    .c bind node <Button-2>
+} -result ""
+
+test bind-delete "an empty script removes the binding" -body {
+    .c bind node <Button-1> {puts clicked}
+    .c bind node <Button-1> {}
+    .c bind node <Button-1>
+} -result ""
+
+test bind-bad-sequence "an invalid event pattern is an error" -body {
+    catch {.c bind node <} msg
+    set msg
+} -result {no event type or button # or keysym}
+
+test bind-unknown-id "binding an unknown item id errors" -body {
+    catch {.c bind 987654 <Button-1> {puts x}} msg
+    set msg
+} -result "invalid item identifier \"987654\""
+
+test bind-dispatch "a tag binding fires when the item is clicked" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Button-1> {append ::hits {B1}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {B1}
+
+test bind-dispatch-outside "a tag binding does not fire away from the item" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Button-1> {append ::hits {B1}}
+    event generate .c <1> -x 250 -y 250
+    set ::hits
+} -result {}
+
+test bind-dispatch-topmost "the topmost item wins the hit test" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set under [.c create rectangle 80 80 120 120 -fill blue -tags under]
+    set over [.c create rectangle 90 90 110 110 -fill red -tags over]
+    .c bind under <Button-1> {append ::hits {UNDER}}
+    .c bind over <Button-1> {append ::hits {OVER}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {OVER}
+
+test bind-dispatch-order "the canvas wide binding runs before the tag binding" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind all <Button-1> {append ::hits {ALL}}
+    .c bind blue <Button-1> {append ::hits {BLUE}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {ALLBLUE}
+
+test bind-dispatch-tag-order "the tags are dispatched in the order they were added" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags {t1 t2}]
+    .c bind all <Button-1> {append ::hits {ALL}}
+    .c bind t1 <Button-1> {append ::hits {T1}}
+    .c bind t2 <Button-1> {append ::hits {T2}}
+    .c bind $id <Button-1> {append ::hits {ITEM}}
+    event generate .c <1> -x 100 -y 100
+    .c bind all <Button-1> {}
+    set ::hits
+} -result {ALLT1T2ITEM}
+
+test bind-dispatch-added-tag-order "a tag added later is dispatched later" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags {t1}]
+    .c bind t1 <Button-1> {append ::hits {T1}}
+    .c addtag t2 withtag $id
+    .c bind t2 <Button-1> {append ::hits {T2}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {T1T2}
+
+test bind-dispatch-release "button release bindings fire as well" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <ButtonRelease-1> {append ::hits {BR}}
+    event generate .c <1> -x 100 -y 100
+    event generate .c <ButtonRelease-1> -x 100 -y 100
+    set ::hits
+} -result {BR}
+
+test bind-dispatch-motion "motion bindings fire" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Motion> {append ::hits {M}}
+    event generate .c <Motion> -x 100 -y 100
+    set ::hits
+} -result {M}
+
+test bind-dispatch-substitution "the script sees the event coordinates" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Button-1> {append ::hits [list %x %y]}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {100 100}
+
+test bind-dispatch-current-tag "the item under the pointer carries the current tag" -body {
+    clearBindings
+    .c delete all
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    event generate .c <1> -x 100 -y 100
+    expr {[.c find withtag current] eq $id}
+} -result 1
+
+test bind-dispatch-item-binding "a binding on an item id fires for that item" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue]
+    .c bind $id <Button-1> {append ::hits {ITEM}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {ITEM}
+
+test bind-dispatch-key "key bindings fire when the canvas has the focus" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind all <KeyPress-a> {append ::hits {KEY}}
+    focus .c
+    event generate .c <KeyPress-a>
+    set ::hits
+} -result {KEY}
+
+test bind-dispatch-removed "a removed binding no longer fires" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Button-1> {append ::hits {B1}}
+    .c bind blue <Button-1> {}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {}
+
+test bind-unfilled-interior "an unfilled item is only hit near its outline" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -tags blue]
+    .c bind blue <Button-1> {append ::hits {B1}}
+    # In the middle of the rectangle: no fill, so nothing is hit.
+    event generate .c <1> -x 100 -y 100
+    set ::inside $::hits
+    set ::hits {}
+    # On the outline: the item is hit.
+    event generate .c <1> -x 80 -y 100
+    list $inside $::hits
+} -result {{} B1}
+
+test bind-illegal-event "an event type that Tk does not allow for tags is rejected" -body {
+    clearBindings
+    .c delete all
+    catch {.c bind blue <FocusIn> {set ::hit 1}} msg
+    set msg
+} -result "requested illegal events; only key, button, motion, enter, leave, and virtual events may be used"
+
+test bind-virtual-never-fires "a virtual event pattern is accepted but never fires" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    event add <<TkTestVirtual>> <Button-1>
+    .c bind blue <<TkTestVirtual>> {append ::hits {V}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {}
+
+test bind-virtual-query "a virtual event binding can be read back" -body {
+    clearBindings
+    .c delete all
+    .c bind blue <<TkTestVirtual2>> {puts virtual}
+    .c bind blue <<TkTestVirtual2>>
+} -result {puts virtual}
+test bind-append "a script starting with + is appended to the binding" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Button-1> {append ::hits {A}}
+    .c bind blue <Button-1> {+append ::hits {B}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {AB}
+
+test bind-replace "a script without + replaces the binding" -body {
+    clearBindings
+    .c delete all
+    set ::hits {}
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Button-1> {append ::hits {A}}
+    .c bind blue <Button-1> {+append ::hits {B}}
+    .c bind blue <Button-1> {append ::hits {C}}
+    event generate .c <1> -x 100 -y 100
+    set ::hits
+} -result {C}
+
+test bind-delete-missing "removing a binding that does not exist is not an error" -body {
+    clearBindings
+    .c delete all
+    .c bind blue <Button-1> {}
+    list ok
+} -result {ok}
+
+# This test destroys the canvas, so it has to be the last one.
+test bind-destroy-during-event "a binding may destroy the canvas" -body {
+    clearBindings
+    .c delete all
+    set id [.c create rectangle 80 80 120 120 -fill blue -tags blue]
+    .c bind blue <Button-1> {destroy .c}
+    event generate .c <1> -x 100 -y 100
+    expr {[winfo exists .c]}
+} -result 0
+
+clearBindings
+if {[winfo exists .c]} { destroy .c }
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

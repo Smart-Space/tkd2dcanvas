@@ -37,3 +37,14 @@ def test_find_closest(canvas):
         assert a in canvas.find_closest(5, 5)
     except CommandError as exc:
         pytest.skip(str(exc))
+
+
+def test_find_overlapping_and_enclosed(canvas):
+    try:
+        a = canvas.create_rectangle(0, 0, 100, 100)
+        b = canvas.create_rectangle(500, 500, 600, 600)
+        assert canvas.find_overlapping(-10, -10, 10, 10) == [a]
+        assert canvas.find_enclosed(-10, -10, 10, 10) == []
+        assert canvas.find_overlapping(-1000, -1000, 1000, 1000) == [a, b]
+    except CommandError as exc:
+        pytest.skip(str(exc))

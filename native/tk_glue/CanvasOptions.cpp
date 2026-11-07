@@ -29,7 +29,7 @@ const Tk_OptionSpec kCanvasOptionSpecs[] = {
      (char *) "Canvas", Tk_Offset(CanvasWidget, classObj),
      -1, 0, (char *) NULL, kCanvasOptOther},
     {TK_OPTION_DOUBLE, "-closeenough", "closeEnough", "CloseEnough",
-     (char *) "2.0", -1, Tk_Offset(CanvasWidget, closeEnough),
+     (char *) "1.0", -1, Tk_Offset(CanvasWidget, closeEnough),
      0, (char *) NULL, kCanvasOptOther},
     {TK_OPTION_BOOLEAN, "-confine", "confine", "Confine",
      (char *) "1", -1, Tk_Offset(CanvasWidget, confine),

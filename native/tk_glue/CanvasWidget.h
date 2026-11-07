@@ -10,6 +10,8 @@
 #include <windows.h>
 
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "tkd2dcanvas/CanvasItem.h"
 #include "tkd2dcanvas/CanvasModel.h"
@@ -18,6 +20,9 @@
 #include "Win32Surface.h"
 
 namespace tkd2dcanvas {
+
+// The tag Tk puts on the item under the pointer.
+inline constexpr const char* kCurrentTag = "current";
 
 struct CanvasWidget {
     // ---- option values (targets of the Tk option table) --------------------
@@ -35,7 +40,7 @@ struct CanvasWidget {
     int relief = 0;                        // -relief
     int xScrollIncrement = 0;              // -xscrollincrement
     int yScrollIncrement = 0;              // -yscrollincrement
-    double closeEnough = 2.0;              // -closeenough
+    double closeEnough = 1.0;              // -closeenough
     int confine = 1;                       // -confine
 
     // ---- runtime state -----------------------------------------------------
@@ -53,6 +58,19 @@ struct CanvasWidget {
     int pixelWidth = 0;
     int pixelHeight = 0;
     bool mapped = false;
+
+    Tk_BindingTable bindingTable = nullptr;
+    int currentItemId = CanvasModel::kInvalidId;
+    // Per item binding objects
+    std::unordered_map<int, ClientData> itemBindingObjects;
+    // The event patterns bound to a binding object.
+    std::unordered_map<void*, std::vector<std::string>> boundSequences;
+    // Virtual event patterns ("<<Foo>>"): Tk's canvas stores them but never
+    // fires them, so they are kept aside instead of going into Tk's table.
+    std::unordered_map<void*, std::unordered_map<std::string, std::string>> virtualBindings;
+
+    int eventDepth = 0;
+    bool destroyPending = false;
 
     // Creates the widget (window + options + command + event handlers).
     // `objv[firstOption..]` are the option words of the creating command.
@@ -79,6 +97,39 @@ struct CanvasWidget {
     // `damaged` is the area that has to be repainted (in top-level client
     // coordinates); the widget is only painted when the two overlap.
     void Paint(HDC dc, const RECT& damaged);
+
+    // Picks the item under the given (widget local) coordinates and makes it
+    // the "current" item. The hit test itself lives in the C++ core.
+    void PickCurrentItem(int x, int y);
+    // Clears the current item (the pointer left the widget).
+    void ClearCurrentItem();
+
+    // The event patterns bound to a binding object (empty when there is none).
+    std::vector<std::string> BoundSequences(ClientData object) const;
+    // Remembers that `sequence` is bound to `object`.
+    void RememberBinding(ClientData object, const std::string& sequence);
+    // Forgets a binding that was just removed.
+    void ForgetBinding(ClientData object, const std::string& sequence);
+    // Stores a virtual event pattern (never fired, like in Tk).
+    void RememberVirtualBinding(ClientData object, const std::string& sequence,
+                                 const std::string& script);
+    // The script of a virtual event pattern (empty when there is none).
+    std::string VirtualBinding(ClientData object, const std::string& sequence) const;
+    // Removes a virtual event pattern.
+    void ForgetVirtualBinding(ClientData object, const std::string& sequence);
+
+    // Marks the beginning of an event dispatch. The widget must not be freed
+    // while an event is being dispatched.
+    void BeginEvent();
+    // Marks the end of an event dispatch; frees the widget when it was
+    // destroyed in the meantime. Nothing may touch the widget afterwards.
+    void EndEvent();
+    // Requests the destruction of the widget.
+    void RequestDestroy();
+
+private:
+    // Detaches the widget from Tk and frees it.
+    void FinalizeDestroy();
 };
 
 }  // namespace tkd2dcanvas

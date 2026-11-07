@@ -1,5 +1,6 @@
 ﻿#include "CanvasWidget.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -117,15 +118,49 @@ void CanvasWidget::CommandDeleted(ClientData clientData) {
     auto* widget = static_cast<CanvasWidget*>(clientData);
     if (!widget) return;
 
-    if (widget->hwnd) {
-        DetachCanvasFromWindow(widget->hwnd, widget);
-        widget->hwnd = nullptr;
+    widget->RequestDestroy();
+}
+
+void CanvasWidget::RequestDestroy() {
+    destroyPending = true;
+    if (eventDepth > 0) return;  // freed by EndEvent()
+    FinalizeDestroy();
+}
+
+void CanvasWidget::FinalizeDestroy() {
+    destroyPending = false;
+
+    if (hwnd) {
+        DetachCanvasFromWindow(hwnd, this);
+        hwnd = nullptr;
     }
-    if (widget->tkwin && widget->optionTable) {
-        Tk_FreeConfigOptions(reinterpret_cast<char*>(widget), widget->optionTable, widget->tkwin);
+    if (tkwin && optionTable) {
+        Tk_FreeConfigOptions(reinterpret_cast<char*>(this), optionTable, tkwin);
+        optionTable = nullptr;
     }
-    widget->surface.Detach();
-    delete widget;
+    if (bindingTable) {
+        Tk_DeleteBindingTable(bindingTable);
+        bindingTable = nullptr;
+    }
+    for (auto& [id, key] : itemBindingObjects) {
+        delete[] reinterpret_cast<char*>(key);
+    }
+    itemBindingObjects.clear();
+    boundSequences.clear();
+    virtualBindings.clear();
+    surface.Detach();
+    delete this;
+}
+
+void CanvasWidget::BeginEvent() {
+    ++eventDepth;
+}
+
+void CanvasWidget::EndEvent() {
+    if (--eventDepth <= 0) {
+        eventDepth = 0;
+        if (destroyPending) FinalizeDestroy();
+    }
 }
 
 int CanvasWidget::WidgetCmd(ClientData clientData, Tcl_Interp* interp,
@@ -210,6 +245,70 @@ void CanvasWidget::Invalidate() {
 
 void CanvasWidget::Invalidate(const BBox& box) {
     surface.Invalidate(box);
+}
+
+void CanvasWidget::PickCurrentItem(int x, int y) {
+    // The hit test lives in the C++ core: the topmost item whose shape is
+    // within the -closeenough tolerance wins.
+    const int id = model.FindItemAt(static_cast<double>(x), static_cast<double>(y), closeEnough);
+    if (id == currentItemId) return;
+
+    // The "current" tag follows the item under the pointer (Tk semantics).
+    if (currentItemId != CanvasModel::kInvalidId) {
+        model.RemoveTag(currentItemId, kCurrentTag);
+    }
+    if (id != CanvasModel::kInvalidId) {
+        model.AddTag(id, kCurrentTag);
+    }
+    currentItemId = id;
+}
+
+void CanvasWidget::ClearCurrentItem() {
+    if (currentItemId != CanvasModel::kInvalidId) {
+        model.RemoveTag(currentItemId, kCurrentTag);
+    }
+    currentItemId = CanvasModel::kInvalidId;
+}
+
+std::vector<std::string> CanvasWidget::BoundSequences(ClientData object) const {
+    const auto it = boundSequences.find(object);
+    if (it == boundSequences.end()) return {};
+    return it->second;
+}
+
+void CanvasWidget::RememberBinding(ClientData object, const std::string& sequence) {
+    std::vector<std::string>& sequences = boundSequences[object];
+    if (std::find(sequences.begin(), sequences.end(), sequence) == sequences.end()) {
+        sequences.push_back(sequence);
+    }
+}
+
+void CanvasWidget::ForgetBinding(ClientData object, const std::string& sequence) {
+    const auto it = boundSequences.find(object);
+    if (it == boundSequences.end()) return;
+    auto& sequences = it->second;
+    sequences.erase(std::remove(sequences.begin(), sequences.end(), sequence), sequences.end());
+    if (sequences.empty()) boundSequences.erase(it);
+}
+
+void CanvasWidget::RememberVirtualBinding(ClientData object, const std::string& sequence,
+                                           const std::string& script) {
+    virtualBindings[object][sequence] = script;
+}
+
+std::string CanvasWidget::VirtualBinding(ClientData object, const std::string& sequence) const {
+    const auto it = virtualBindings.find(object);
+    if (it == virtualBindings.end()) return {};
+    const auto script = it->second.find(sequence);
+    if (script == it->second.end()) return {};
+    return script->second;
+}
+
+void CanvasWidget::ForgetVirtualBinding(ClientData object, const std::string& sequence) {
+    const auto it = virtualBindings.find(object);
+    if (it == virtualBindings.end()) return;
+    it->second.erase(sequence);
+    if (it->second.empty()) virtualBindings.erase(it);
 }
 
 void CanvasWidget::Paint(HDC dc, const RECT& damaged) {

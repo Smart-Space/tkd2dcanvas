@@ -1,6 +1,7 @@
 #include "PolygonItem.h"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 #include "tkd2dcanvas/HitTest.h"
@@ -48,21 +49,25 @@ std::vector<Point> PolygonItem::DisplayPoints() const {
     return points_;
 }
 
-bool PolygonItem::HitTest(Point p, double tolerance) const {
+double PolygonItem::DistanceTo(Point p) const {
     // Tk hit-tests against the smoothed points (smooth && numPoints > 2).
     const std::vector<Point> tk = TkPoints();
     const std::vector<Point> poly = (smooth_.mode != SmoothMode::None && tk.size() > 2)
                                         ? SmoothCurvePoints(tk, smooth_)
                                         : points_;
-    if (poly.size() < 3) return false;
-    // Inside the fill, or close to an outline segment.
-    if (HitTest::PointInPolygon(p, poly)) return true;
+    if (poly.size() < 3) return CanvasItem::DistanceTo(p);
+
+    // Inside the polygon the distance is zero - like Tk, this does not depend
+    // on whether the polygon is filled.
+    if (HitTest::PointInPolygon(p, poly)) return 0.0;
+
+    double best = std::numeric_limits<double>::max();
     for (std::size_t i = 0; i < poly.size(); ++i) {
         const Point& a = poly[i];
         const Point& b = poly[(i + 1) % poly.size()];
-        if (HitTest::DistancePointToSegment(p, a, b) <= tolerance) return true;
+        best = std::min(best, HitTest::DistancePointToSegment(p, a, b));
     }
-    return false;
+    return best;
 }
 
 std::vector<double> PolygonItem::GetCoordinates() const {

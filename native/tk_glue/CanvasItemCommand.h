@@ -9,6 +9,8 @@
 
 #include <tcl.h>
 
+#include <vector>
+
 namespace tkd2dcanvas {
 
 struct CanvasWidget;
@@ -16,5 +18,14 @@ struct CanvasWidget;
 // Handles the item related subcommands of a canvas widget command.
 // `objv[0]` is the widget command itself, `objv[1]` the subcommand.
 int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]);
+
+// Resolves Tk-style item specs (item id / "all" / tag name) in
+// objv[firstArg, limit) to a deduplicated list of existing item ids, sorted
+// bottom-to-top (display list order).
+// A purely numeric spec that does not name an existing item is an error
+// (Tk semantics); a tag matching nothing is *not*.
+bool ResolveItemSpecs(CanvasWidget& widget, Tcl_Interp* interp,
+                      Tcl_Obj* const objv[], int firstArg, int limit,
+                      std::vector<int>& out);
 
 }  // namespace tkd2dcanvas

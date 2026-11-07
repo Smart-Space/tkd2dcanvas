@@ -20,10 +20,38 @@ void OvalItem::Translate(double dx, double dy) {
     x1_ += dx; x2_ += dx; y1_ += dy; y2_ += dy;
 }
 
-bool OvalItem::HitTest(Point p, double /*tolerance*/) const {
+double OvalItem::DistanceTo(Point p) const {
     const BBox box = GetBBox();
-    return HitTest::PointInEllipse(p, box.CenterX(), box.CenterY(),
-                                   box.Width() * 0.5, box.Height() * 0.5);
+    const double rx = box.Width() * 0.5;
+    const double ry = box.Height() * 0.5;
+    if (rx <= 0.0 || ry <= 0.0) {
+        // Degenerate ellipse: fall back to the bounding box.
+        return CanvasItem::DistanceTo(p);
+    }
+
+    const double cx = box.CenterX();
+    const double cy = box.CenterY();
+
+    // Work in the unit-circle space of the ellipse: the direction from the
+    // centre is preserved, the radius is scaled. This mirrors Tk's
+    // TkOvalToPoint (an approximation for eccentric ovals).
+    const double nx = (p.x - cx) / rx;
+    const double ny = (p.y - cy) / ry;
+    const double scaled = std::sqrt(nx * nx + ny * ny);
+    const double dx = p.x - cx;
+    const double dy = p.y - cy;
+    const double distToCenter = std::sqrt(dx * dx + dy * dy);
+
+    if (scaled > 1.0) {
+        // Outside: the distance to the ellipse.
+        return (distToCenter / scaled) * (scaled - 1.0);
+    }
+
+    // Inside: a filled oval is hit everywhere, an unfilled one only near its
+    // outline (Tk behaves the same way).
+    if (Style().fill) return 0.0;
+    if (scaled < 1e-10) return std::min(rx, ry);  // the centre
+    return (distToCenter / scaled) * (1.0 - scaled);
 }
 
 bool OvalItem::SetCoordinates(const std::vector<double>& coords) {

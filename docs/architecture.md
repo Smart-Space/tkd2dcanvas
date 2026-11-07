@@ -72,6 +72,13 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
 基础窗口事件（FocusIn/FocusOut、Enter/Leave、TakeFocus、键盘遍历）仍需与
 Tk 协调；这些走 `CanvasEventBridge`，通过 `Tk_CreateEventHandler` 安装。
 
+### M6 的落地方式
+
+- **事件模式匹配走 Tk 的 binding table**
+- **事件类型与 Tk 的 canvas 对齐**
+- 绑定脚本可以销毁画布：widget 的释放在事件派发结束后才进行
+  （`CanvasWidget::BeginEvent` / `EndEvent`）。
+
 ## 命名说明
 
 渲染实现与运行时行为均为 Direct2D/DirectWrite；构建链接 `d2d1.lib` /

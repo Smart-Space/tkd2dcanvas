@@ -26,7 +26,23 @@ public:
     // --- Geometry ----------------------------------------------------------
     virtual BBox GetBBox() const = 0;
     virtual void Translate(double dx, double dy) = 0;
-    virtual bool HitTest(Point p, double tolerance) const;
+
+    // Distance from `p` to the item's outline; 0 when the point lies inside a
+    // filled area of the item. The default implementation measures the
+    // distance to the bounding box. Items with a real outline (rectangle,
+    // oval, line, polygon, arc) refine this.
+    virtual double DistanceTo(Point p) const;
+
+    // True when `p` is within `tolerance` of the item. The outline width
+    // widens the hit area, exactly like Tk (the stroke covers the path plus
+    // half its width on each side).
+    bool HitTest(Point p, double tolerance) const {
+        double distance = DistanceTo(p);
+        const double halfWidth = Style().width * 0.5;
+        if (halfWidth > 0.0) distance -= halfWidth;
+        if (distance < 0.0) distance = 0.0;
+        return distance <= tolerance;
+    }
 
     // --- Rendering ---------------------------------------------------------
     virtual void Draw(Renderer& renderer) const = 0;

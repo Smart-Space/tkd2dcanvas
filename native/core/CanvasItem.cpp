@@ -1,12 +1,19 @@
 #include "tkd2dcanvas/CanvasItem.h"
 
 #include <algorithm>
+#include <cmath>
 
-#include "tkd2dcanvas/HitTest.h"
-
-bool CanvasItem::HitTest(Point p, double tolerance) const {
+double CanvasItem::DistanceTo(Point p) const {
     const BBox box = GetBBox();
-    return HitTest::PointInRect(p, box.left, box.top, box.right, box.bottom, tolerance);
+    if (!box.IsValid()) return 0.0;
+
+    const double dx = (p.x < box.left) ? box.left - p.x
+                     : (p.x > box.right) ? p.x - box.right
+                                         : 0.0;
+    const double dy = (p.y < box.top) ? box.top - p.y
+                     : (p.y > box.bottom) ? p.y - box.bottom
+                                          : 0.0;
+    return std::sqrt(dx * dx + dy * dy);
 }
 
 bool CanvasItem::HasTag(const std::string& tag) const {

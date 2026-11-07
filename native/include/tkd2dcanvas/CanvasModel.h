@@ -33,12 +33,29 @@ public:
     bool RaiseToTop(int id);
     bool LowerToBottom(int id);
     bool RaiseBy(int id, int delta);                // +delta = towards top
+    // Moves the given items (which keep their relative order) directly above
+    // `anchorId`; a kInvalidId anchor moves them to the top of the list.
+    bool MoveItemsAbove(const std::vector<int>& ids, int anchorId);
+    // Same, but directly below the anchor (kInvalidId = bottom of the list).
+    bool MoveItemsBelow(const std::vector<int>& ids, int anchorId);
     std::vector<CanvasItem*> ItemsInZOrder() const;  // bottom-to-top
 
     // --- Operations -------------------------------------------------------------
     bool Translate(const std::vector<int>& ids, double dx, double dy);
     BBox ItemBBox(int id) const;
     BBox AllBBox() const;
+
+    // --- Hit testing -------------------------------------------------------------
+    // The topmost item whose shape is within `tolerance` of the point, or
+    // kInvalidId when the point hits nothing.
+    int FindItemAt(double x, double y, double tolerance) const;
+    // The item closest to the point. `halo` shrinks every distance by that
+    // amount (never below zero), so items inside the halo count as equally
+    // close. Ties are won by the topmost item.
+    int FindClosest(double x, double y, double halo) const;
+    // Like FindClosest, but the search starts at `startId` and wraps around
+    // the display list (Tk's "closest x y ?halo? ?start?").
+    int FindClosestFrom(double x, double y, double halo, int startId) const;
 
     // --- Tags ---------------------------------------------------------------------
     bool AddTag(int id, const std::string& tag);

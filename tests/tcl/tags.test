@@ -1,4 +1,4 @@
-# tags.test — M6: addtag/dtag/find withtag
+# tags.test — M6: addtag / dtag / gettags / raise / lower
 package require tcltest
 namespace import ::tcltest::*
 
@@ -7,9 +7,127 @@ if {[catch {package require tkd2dcanvas} err]} {
     exit 0
 }
 
-test tags-placeholder "placeholder until M6" -body {
-    expr {1}
+tkd2dcanvas .c -width 320 -height 240
+
+test tags-gettags-empty "an item without tags reports an empty list" -body {
+    set id [.c create rectangle 0 0 10 10]
+    .c gettags $id
+} -result ""
+
+test tags-gettags-order "gettags reports the tags in the order they were added" -body {
+    set id [.c create rectangle 0 0 10 10 -tags {alpha beta}]
+    .c gettags $id
+} -result "alpha beta"
+
+test tags-gettags-unknown "gettags on an unknown id errors" -body {
+    catch {.c gettags 999999} msg
+    set msg
+} -result "invalid item identifier \"999999\""
+
+test tags-addtag-withtag "addtag tags the matching item" -body {
+    .c delete all
+    set id [.c create rectangle 0 0 10 10]
+    .c addtag group withtag $id
+    expr {[.c gettags $id] eq "group" && [.c find withtag group] eq $id}
 } -result 1
+
+test tags-addtag-all "addtag with the search command all tags every item" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create oval 20 20 30 30]
+    .c addtag every all
+    list [.c gettags $a] [.c gettags $b]
+} -result {every every}
+
+test tags-addtag-keeps-existing "addtag does not drop the existing tags" -body {
+    .c delete all
+    set id [.c create rectangle 0 0 10 10 -tags base]
+    .c addtag extra withtag $id
+    .c gettags $id
+} -result "base extra"
+
+test tags-addtag-empty-name "addtag rejects an empty tag name" -body {
+    catch {.c addtag {} withtag all} msg
+    set msg
+} -result "tag must not be empty"
+
+test tags-dtag-item "dtag removes a tag from an item" -body {
+    .c delete all
+    set id [.c create rectangle 0 0 10 10 -tags {base extra}]
+    .c dtag $id extra
+    .c gettags $id
+} -result "base"
+
+test tags-dtag-tag "dtag removes a tag from every item carrying it" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10 -tags group]
+    set b [.c create rectangle 20 20 30 30 -tags group]
+    .c dtag group
+    list [.c gettags $a] [.c gettags $b] [.c find withtag group]
+} -result {{} {} {}}
+
+test tags-dtag-unknown-tag "dtag on an unknown tag is a no-op" -body {
+    .c delete all
+    set id [.c create rectangle 0 0 10 10 -tags base]
+    .c dtag nosuchtag
+    .c gettags $id
+} -result "base"
+
+test tags-itemconfigure-replaces "itemconfigure -tags replaces the whole tag list" -body {
+    .c delete all
+    set id [.c create rectangle 0 0 10 10 -tags {a b}]
+    .c itemconfigure $id -tags {c}
+    .c gettags $id
+} -result "c"
+
+test tags-raise-to-top "raise moves the item to the top of the display list" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 20 20 30 30]
+    .c raise $a
+    expr {[.c find all] eq "$b $a"}
+} -result 1
+
+test tags-lower-to-bottom "lower moves the item to the bottom of the display list" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 20 20 30 30]
+    .c lower $b
+    expr {[.c find all] eq "$b $a"}
+} -result 1
+
+test tags-raise-group "raise moves every item of a tag as a group" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10 -tags grp]
+    set b [.c create rectangle 20 20 30 30]
+    set c [.c create rectangle 40 40 50 50 -tags grp]
+    .c raise grp
+    expr {[.c find all] eq "$b $a $c"}
+} -result 1
+
+test tags-raise-above "raise places the items above the given one" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 20 20 30 30]
+    .c raise $b $a
+    expr {[.c find all] eq "$b $a"}
+} -result 1
+
+test tags-lower-below "lower places the items below the given one" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 20 20 30 30]
+    .c lower $b $a
+    expr {[.c find all] eq "$b $a"}
+} -result 1
+
+test tags-raise-unknown-anchor "raise with an anchor that matches nothing errors" -body {
+    .c delete all
+    catch {.c raise all nosuchtag} msg
+    set msg
+} -result "tagOrId \"nosuchtag\" doesn't match any items"
+
+destroy .c
 
 if {![info exists ::tkg_all_in_progress]} {
     cleanupTests

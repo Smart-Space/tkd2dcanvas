@@ -103,6 +103,8 @@ add_library(tkd2dcanvas SHARED
     native/tk_glue/CanvasScrollBridge.cpp
     native/tk_glue/CanvasItemCommand.cpp
     native/tk_glue/CanvasItemOptions.cpp
+    native/tk_glue/CanvasTagCommand.cpp
+    native/tk_glue/CanvasBindCommand.cpp
     native/tk_glue/CanvasTkColor.cpp
     native/tk_glue/CanvasTkFont.cpp
     native/tk_glue/CanvasTkImage.cpp
@@ -169,9 +171,22 @@ endif()  # TKG_CORE_ONLY
 
 if(TKG_BUILD_TESTS AND WIN32)
     enable_testing()
-    foreach(test_name IN ITEMS test_canvas_model test_tags test_geometry test_hit_test test_bbox test_smooth_curve)
+    foreach(test_name IN ITEMS test_canvas_model test_tags test_geometry test_hit_test test_bbox test_smooth_curve test_hit_search)
         add_executable(${test_name} tests/cpp/${test_name}.cpp ${TKG_CORE_SOURCES})
         target_include_directories(${test_name} PRIVATE native/include)
         add_test(NAME ${test_name} COMMAND ${test_name})
     endforeach()
+
+    # The item classes are needed to test the hit test of the concrete items.
+    set(TKG_ITEM_SOURCES
+        native/items/RectItem.cpp
+        native/items/OvalItem.cpp
+        native/items/LineItem.cpp
+        native/items/PolygonItem.cpp
+        native/items/ArcItem.cpp
+        native/items/ItemRegistrations.cpp
+    )
+    add_executable(test_item_hit tests/cpp/test_item_hit.cpp ${TKG_CORE_SOURCES} ${TKG_ITEM_SOURCES})
+    target_include_directories(test_item_hit PRIVATE native/include native/items)
+    add_test(NAME test_item_hit COMMAND test_item_hit)
 endif()

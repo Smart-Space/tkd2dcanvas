@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import itertools
 import tkinter
-from typing import Any, Iterable, Optional, Sequence, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 
 from ._loader import load_into
 from .errors import CommandError
 from .options import flatten_options, serialize_value
 
 _counter = itertools.count(1)
+_command_counter = itertools.count(1)
+
+# The substitutions Tk performs on a binding script before it is evaluated.
+# The order matches tkinter's own widget bindings, so that a callback can be
+# written exactly like in tkinter.
+_SUBST_FORMAT = (
+    "%#", "%b", "%f", "%h", "%k", "%s", "%t", "%w", "%x", "%y",
+    "%A", "%E", "%K", "%N", "%W", "%T", "%X", "%Y", "%D",
+)
+_SUBST_FORMAT_STR = " ".join(_SUBST_FORMAT)
 
 
 def _parse_id_list(text: str) -> list[int]:
@@ -33,6 +43,51 @@ def _parse_bbox(text: str) -> Optional[Tuple[float, float, float, float]]:
         return None
 
 
+def _make_event(canvas: "Canvas", args: Sequence[str]) -> Any:
+    """Turns the substituted binding arguments into a tkinter.Event."""
+    if len(args) != len(_SUBST_FORMAT):
+        return args
+
+    def as_int(value: str) -> Any:
+        try:
+            return int(value)
+        except ValueError:
+            return value
+
+    (nsign, b, f, h, k, s, t, w, x, y, a, e, K, N, W, T, X, Y, D) = args
+
+    event = tkinter.Event()
+    event.serial = as_int(nsign)
+    event.num = as_int(b)
+    try:
+        event.focus = bool(canvas.master.tk.getboolean(f))
+    except tkinter.TclError:
+        pass
+    event.height = as_int(h)
+    event.keycode = as_int(k)
+    event.state = as_int(s)
+    event.time = as_int(t)
+    event.width = as_int(w)
+    event.x = as_int(x)
+    event.y = as_int(y)
+    event.char = a
+    try:
+        event.send_event = bool(canvas.master.tk.getboolean(e))
+    except tkinter.TclError:
+        pass
+    event.keysym = K
+    event.keysym_num = as_int(N)
+    event.type = T
+    event.widget = W
+    event.x_root = as_int(X)
+    event.y_root = as_int(Y)
+    try:
+        event.delta = int(D)
+    except ValueError:
+        event.delta = 0
+    return event
+
+
 class Canvas:
     """Direct2D canvas widget; API-compatible subset of tkinter.Canvas.
 
@@ -49,6 +104,9 @@ class Canvas:
                 )
         self.master = master
         load_into(master)
+
+        # Tcl commands registered for Python callbacks (see _register).
+        self._tcl_commands: list[str] = []
 
         options = dict(cnf or {})
         options.update(kw)
@@ -75,9 +133,13 @@ class Canvas:
 
     def _call(self, *args: Any) -> str:
         try:
-            return str(self.master.tk.call(self._path, *args))
+            result = self.master.tk.call(self._path, *args)
         except tkinter.TclError as exc:
             raise CommandError(str(exc)) from exc
+        if isinstance(result, tuple):
+            # A Tcl list comes back as a tuple of strings.
+            return " ".join(str(part) for part in result)
+        return str(result)
 
     # --- item creation -------------------------------------------------------
     def create(self, itemtype: str, *coords: Any, **kw: Any) -> int:
@@ -167,17 +229,49 @@ class Canvas:
             args.append(serialize_value(halo))
         return _parse_id_list(self._call("find", "closest", *args))
 
+    def find_overlapping(self, x1: float, y1: float, x2: float, y2: float) -> list[int]:
+        return _parse_id_list(
+            self._call("find", "overlapping", serialize_value(x1), serialize_value(y1),
+                       serialize_value(x2), serialize_value(y2))
+        )
+
+    def find_enclosed(self, x1: float, y1: float, x2: float, y2: float) -> list[int]:
+        return _parse_id_list(
+            self._call("find", "enclosed", serialize_value(x1), serialize_value(y1),
+                       serialize_value(x2), serialize_value(y2))
+        )
+
     def addtag_withtag(self, tag: Any, tagOrId: Any) -> None:
         self._call("addtag", serialize_value(tag), "withtag", serialize_value(tagOrId))
 
     def addtag_all(self, tag: Any) -> None:
         self._call("addtag", serialize_value(tag), "all")
 
+    def addtag_overlapping(self, tag: Any, x1: float, y1: float, x2: float, y2: float) -> None:
+        self._call("addtag", serialize_value(tag), "overlapping", serialize_value(x1),
+                   serialize_value(y1), serialize_value(x2), serialize_value(y2))
+
+    def addtag_enclosed(self, tag: Any, x1: float, y1: float, x2: float, y2: float) -> None:
+        self._call("addtag", serialize_value(tag), "enclosed", serialize_value(x1),
+                   serialize_value(y1), serialize_value(x2), serialize_value(y2))
+
     def dtag(self, item: Any, tag: Any) -> None:
         self._call("dtag", serialize_value(item), serialize_value(tag))
 
     def gettags(self, item: Any) -> list[str]:
         return self._call("gettags", serialize_value(item)).split()
+
+    def tag_raise(self, item: Any, aboveThis: Any = None) -> None:
+        args = [serialize_value(item)]
+        if aboveThis is not None:
+            args.append(serialize_value(aboveThis))
+        self._call("raise", *args)
+
+    def tag_lower(self, item: Any, belowThis: Any = None) -> None:
+        args = [serialize_value(item)]
+        if belowThis is not None:
+            args.append(serialize_value(belowThis))
+        self._call("lower", *args)
 
     # --- scrolling --------------------------------------------------------------
     def xview(self, *args: Any):
@@ -206,16 +300,112 @@ class Canvas:
         return self.master.tk.call(cmd, self._path, *flatten_options(kw))
 
     # --- events ------------------------------------------------------------------
-    def tag_bind(self, tag: Any, sequence: str, script: Optional[str] = None) -> None:
-        args = [serialize_value(tag), sequence]
-        if script is not None:
-            args.append(script)
-        self._call("bind", *args)
+    def tag_bind(self, tag: Any, sequence: Optional[str] = None,
+                 func: Optional[Any] = None, add: Optional[bool] = None) -> Any:
+        """Binds an event sequence to a tag (or to a single item).
 
-    bind = tag_bind
+        ``func`` may be a Python callable or a Tcl script.  A callable is
+        registered as a Tcl command and receives the event object; the id of
+        that command is returned so that the callback can be removed again
+        with :meth:`tag_unbind`.  With ``add=True`` the callback is added to
+        the ones that are already bound to the sequence, otherwise it
+        replaces them.  Without ``func`` the bound script is returned.
+        """
+        return self._bind((self._path, "bind", serialize_value(tag)),
+                           sequence, func, add)
+
+    def bind(self, sequence: Optional[str] = None, func: Optional[Any] = None,
+             add: Optional[bool] = None) -> Any:
+        """Binds an event sequence to the canvas widget itself.
+
+        Like tkinter, this is the *widget* binding; use :meth:`tag_bind` for
+        the items of the canvas.  See :meth:`tag_bind` for the meaning of
+        ``func`` and ``add``.
+        """
+        return self._bind(("bind", self._path), sequence, func, add)
+
+    def tag_unbind(self, tag: Any, sequence: str, funcid: Optional[str] = None) -> None:
+        """Removes the binding of ``sequence`` for a tag (or a single item).
+
+        With ``funcid`` only that single callback is removed, otherwise the
+        whole binding of the sequence goes away.
+        """
+        self._unbind((self._path, "bind", serialize_value(tag), sequence), funcid)
+
+    def unbind(self, sequence: str, funcid: Optional[str] = None) -> None:
+        """Removes the widget binding of ``sequence``.
+
+        With ``funcid`` only that single callback is removed, otherwise the
+        whole binding of the sequence goes away.
+        """
+        self._unbind(("bind", self._path, sequence), funcid)
+
+    def _bind(self, what: tuple, sequence: Optional[str], func: Any,
+              add: Optional[bool]) -> Any:
+        """The tkinter binding protocol (see tkinter.Misc._bind)."""
+        if isinstance(func, str):
+            # A plain Tcl script replaces the whole binding.
+            self.master.tk.call(what + (sequence, func))
+            return None
+        if func:
+            funcid = self._register(func)
+            script = ('%sif {"[%s %s]" == "break"} break\n'
+                      % ("+" if add else "", funcid, _SUBST_FORMAT_STR))
+            self.master.tk.call(what + (sequence, script))
+            return funcid
+        if sequence:
+            return self.master.tk.call(what + (sequence,))
+        return self.master.tk.splitlist(self.master.tk.call(what))
+
+    def _unbind(self, what: tuple, funcid: Optional[str] = None) -> None:
+        """The tkinter unbinding protocol (see tkinter.Misc._unbind).
+
+        A single callback is identified by the line it contributed to the
+        script, so that the other callbacks of the same sequence survive.
+        """
+        if funcid is None:
+            self.master.tk.call(*what, "")
+            return
+
+        script = self.master.tk.call(what)
+        prefix = 'if {"[%s ' % funcid
+        keep = "\n".join(line for line in script.split("\n")
+                         if not line.startswith(prefix))
+        if not keep.strip():
+            keep = ""
+        self.master.tk.call(*what, keep)
+        self._delete_command(funcid)
+
+    def _register(self, func: Callable[..., Any]) -> str:
+        """Registers a Python callable as a Tcl command and returns its name.
+
+        Every registration creates its own command (like tkinter does), so
+        that a single callback can be removed again without affecting the
+        others.
+        """
+        name = f"_tkd2dcanvas_callback_{next(_command_counter)}"
+
+        def wrapper(*args: str) -> str:
+            return str(func(_make_event(self, args)))
+
+        self.master.tk.createcommand(name, wrapper)
+        self._tcl_commands.append(name)
+        return name
+
+    def _delete_command(self, name: str) -> None:
+        """Deletes a registered Tcl command (the callback is gone for good)."""
+        try:
+            self.master.tk.deletecommand(name)
+        except tkinter.TclError:
+            pass  # already gone
+        if name in self._tcl_commands:
+            self._tcl_commands.remove(name)
 
     # --- lifecycle -----------------------------------------------------------------
     def destroy(self) -> None:
+        for name in list(self._tcl_commands):
+            self._delete_command(name)
+        self._tcl_commands.clear()
         try:
             self.master.tk.call("destroy", self._path)
         except tkinter.TclError:

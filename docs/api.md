@@ -52,19 +52,30 @@ canvas.cget("width")
 
 ```python
 canvas.addtag_withtag("hot", r)          # 按 tagOrId 打 tag
+canvas.addtag_all("hot")
+canvas.addtag_overlapping("hot", 0, 0, 100, 100)
 canvas.find_withtag("hot")               # -> [ids]
 canvas.find_all()
+canvas.find_closest(50, 50)              # -> [id]
+canvas.find_overlapping(0, 0, 100, 100)
+canvas.find_enclosed(0, 0, 100, 100)
 canvas.dtag(r, "hot")
-canvas.gettags(r)
+canvas.gettags(r)                        # -> ["hot", ...]
+canvas.tag_raise(r)
+canvas.tag_lower(r)
 ```
 
 ## 绑定
 
 ```python
 from tkd2dcanvas import events
-canvas.tag_bind("hot", events.BUTTON_PRESS_1, lambda e: ...)
+
+def on_click(event):
+    print(event.x, event.y, event.type)
+
+funcid = canvas.tag_bind("hot", events.BUTTON_PRESS_1, on_click)
+canvas.bind(events.BUTTON_PRESS_1, on_click)
 ```
-（M6：Python 回调由 `CanvasEventBridge` 触发，event 对象包含 x/y/widget。）
 
 ## 滚动
 

@@ -1,6 +1,7 @@
 #include "LineItem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include "tkd2dcanvas/HitTest.h"
@@ -37,13 +38,20 @@ std::vector<Point> LineItem::DisplayPoints() const {
     return points_;
 }
 
-bool LineItem::HitTest(Point p, double tolerance) const {
+double LineItem::DistanceTo(Point p) const {
     const std::vector<Point> display = DisplayPoints();
-    if (display.size() < 2) return false;
-    for (std::size_t i = 0; i + 1 < display.size(); ++i) {
-        if (HitTest::DistancePointToSegment(p, display[i], display[i + 1]) <= tolerance) return true;
+    if (display.empty()) return CanvasItem::DistanceTo(p);
+    if (display.size() == 1) {
+        const double dx = p.x - display[0].x;
+        const double dy = p.y - display[0].y;
+        return std::sqrt(dx * dx + dy * dy);
     }
-    return false;
+
+    double best = std::numeric_limits<double>::max();
+    for (std::size_t i = 0; i + 1 < display.size(); ++i) {
+        best = std::min(best, HitTest::DistancePointToSegment(p, display[i], display[i + 1]));
+    }
+    return best;
 }
 
 std::vector<double> LineItem::GetCoordinates() const {

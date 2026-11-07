@@ -1,4 +1,4 @@
-# find.test — M6: find withtag/all/closest
+# find.test — M6: find withtag/all/closest/overlapping/enclosed/above/below
 package require tcltest
 namespace import ::tcltest::*
 
@@ -7,9 +7,130 @@ if {[catch {package require tkd2dcanvas} err]} {
     exit 0
 }
 
-test find-placeholder "placeholder until M6" -body {
-    expr {1}
+tkd2dcanvas .c -width 320 -height 240
+
+test find-all "find all lists every item" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create oval 20 20 30 30]
+    expr {[.c find all] eq "$a $b"}
 } -result 1
+
+test find-withtag "find withtag lists the items carrying the tag" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10 -tags node]
+    set b [.c create oval 20 20 30 30 -tags other]
+    expr {[.c find withtag node] eq $a && [.c find withtag other] eq $b}
+} -result 1
+
+test find-withtag-multiple "find withtag lists every matching item" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10 -tags node]
+    set b [.c create oval 20 20 30 30 -tags node]
+    expr {[.c find withtag node] eq "$a $b"}
+} -result 1
+
+test find-withtag-id "find withtag accepts an item id" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    expr {[.c find withtag $a] eq $a}
+} -result 1
+
+test find-withtag-unknown "find withtag on an unknown tag returns an empty list" -body {
+    .c delete all
+    .c find withtag nosuchtag
+} -result ""
+
+test find-withtag-unknown-id "find withtag on an unknown id errors" -body {
+    catch {.c find withtag 987654} msg
+    set msg
+} -result "invalid item identifier \"987654\""
+
+test find-closest "find closest returns the item near the coordinates" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 100 100]
+    set b [.c create rectangle 200 200 300 300]
+    expr {[.c find closest 10 10] eq $a}
+} -result 1
+
+test find-closest-far "find closest works outside of every item" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 100 100]
+    set b [.c create rectangle 200 200 300 300]
+    expr {[.c find closest 140 140] eq $a}
+} -result 1
+
+test find-closest-halo "the halo makes nearby items equally close" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 100 100 110 110]
+    expr {[.c find closest 5 5 200] eq $b}
+} -result 1
+
+test find-closest-negative-halo "a negative halo is an error" -body {
+    catch {.c find closest 5 5 -1} msg
+    set msg
+} -result "can't have negative halo value \"-1.000000\""
+
+test find-overlapping "find overlapping lists the items touching the area" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 100 100]
+    set b [.c create rectangle 200 200 300 300]
+    expr {[.c find overlapping 50 50 250 250] eq "$a $b"}
+} -result 1
+
+test find-enclosed "find enclosed only lists the items fully inside the area" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 100 100]
+    set b [.c create rectangle 200 200 300 300]
+    expr {[.c find enclosed 50 50 250 250] eq ""}
+} -result 1
+
+test find-enclosed-inside "find enclosed lists the items fully inside the area" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 100 100]
+    set b [.c create rectangle 200 200 300 300]
+    expr {[.c find enclosed -10 -10 400 400] eq "$a $b"}
+} -result 1
+
+test find-above "find above returns the item above the given one" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 20 20 30 30]
+    expr {[.c find above $a] eq $b}
+} -result 1
+
+test find-below "find below returns the item below the given one" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 20 20 30 30]
+    expr {[.c find below $b] eq $a}
+} -result 1
+
+test find-bad-command "an unknown search command is an error" -body {
+    catch {.c find bogus} msg
+    set msg
+} -result "bad search command \"bogus\": must be above, all, below, closest, enclosed, overlapping or withtag"
+
+test find-all-alias "the findall alias works" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10]
+    expr {[.c findall] eq $a}
+} -result 1
+
+test find-withtag-alias "the findwithtag alias works" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 10 10 -tags node]
+    expr {[.c findwithtag node] eq $a}
+} -result 1
+
+test find-closest-alias "the findclosest alias works" -body {
+    .c delete all
+    set a [.c create rectangle 0 0 100 100]
+    expr {[.c findclosest 10 10] eq $a}
+} -result 1
+
+destroy .c
 
 if {![info exists ::tkg_all_in_progress]} {
     cleanupTests

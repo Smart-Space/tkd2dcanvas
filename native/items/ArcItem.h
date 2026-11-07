@@ -21,7 +21,7 @@ public:
 
     BBox GetBBox() const override;  // the full ellipse bounds (Tk semantics)
     void Translate(double dx, double dy) override;
-    bool HitTest(Point p, double tolerance) const override;
+    double DistanceTo(Point p) const override;
     void Draw(Renderer& renderer) const override;
 
     double Start() const { return start_; }

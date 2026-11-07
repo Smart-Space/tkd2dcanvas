@@ -16,6 +16,8 @@
 #include "tkd2dcanvas/ItemFactory.h"
 
 #include "CanvasItemOptions.h"
+#include "CanvasBindCommand.h"
+#include "CanvasTagCommand.h"
 #include "CanvasWidget.h"
 
 namespace tkd2dcanvas {
@@ -61,9 +63,9 @@ void InvalidateItem(CanvasWidget& widget, const CanvasItem& item, double padWidt
 // objv[firstArg, limit) to a deduplicated list of existing item ids.
 // A purely numeric spec that does not name an existing item is an error
 // (Tk semantics); a tag matching nothing is *not*.
-bool ResolveItemSpecs(CanvasWidget& widget, Tcl_Interp* interp,
-                      Tcl_Obj* const objv[], int firstArg, int limit,
-                      std::vector<int>& out) {
+static bool ResolveItemSpecsImpl(CanvasWidget& widget, Tcl_Interp* interp,
+                                 Tcl_Obj* const objv[], int firstArg, int limit,
+                                 std::vector<int>& out) {
     out.clear();
     auto append = [&](int id) {
         if (std::find(out.begin(), out.end(), id) == out.end()) out.push_back(id);
@@ -326,6 +328,7 @@ int DeleteCmd(CanvasWidget& widget, Tcl_Interp* interp,
         const double width = item->Style().width;
         const BBox box = item->GetBBox();
         widget.model.DeleteItem(id);
+        if (widget.currentItemId == id) widget.ClearCurrentItem();
         InvalidatePadded(widget, box, width);
     }
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
@@ -471,6 +474,12 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
 
 }  // namespace
 
+bool ResolveItemSpecs(CanvasWidget& widget, Tcl_Interp* interp,
+                      Tcl_Obj* const objv[], int firstArg, int limit,
+                      std::vector<int>& out) {
+    return ResolveItemSpecsImpl(widget, interp, objv, firstArg, limit, out);
+}
+
 int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
                          int objc, Tcl_Obj* const objv[]) {
     const std::string cmd = (objc >= 2) ? Tcl_GetString(objv[1]) : "";
@@ -497,24 +506,16 @@ int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
         return ItemCgetCmd(widget, interp, objc, objv);
     }
     if (cmd == "addtag" || cmd == "dtag" || cmd == "gettags") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: addtag/dtag/gettags is not implemented yet (milestone M6)", -1));
-        return TCL_ERROR;
+        return CanvasTagSubcommand(widget, interp, objc, objv);
     }
     if (cmd == "find" || cmd == "findwithtag" || cmd == "findall" || cmd == "findclosest") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: find withtag/all/closest is not implemented yet (milestone M6)", -1));
-        return TCL_ERROR;
+        return CanvasTagSubcommand(widget, interp, objc, objv);
     }
-    if (cmd == "bind" || cmd == "tagbind" || cmd == "current") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: bind/tagbind is not implemented yet (milestone M6)", -1));
-        return TCL_ERROR;
+    if (cmd == "bind" || cmd == "tagbind") {
+        return CanvasBindSubcommand(widget, interp, objc, objv);
     }
     if (cmd == "raise" || cmd == "lower" || cmd == "tagraise" || cmd == "taglower") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: raise/lower is not implemented yet (milestone M6)", -1));
-        return TCL_ERROR;
+        return CanvasTagSubcommand(widget, interp, objc, objv);
     }
     if (cmd == "xview" || cmd == "yview") {
         Tcl_SetObjResult(interp, Tcl_NewStringObj(

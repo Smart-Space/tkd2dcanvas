@@ -78,6 +78,46 @@ bool CanvasModel::RaiseBy(int id, int delta) {
     return true;
 }
 
+bool CanvasModel::MoveItemsAbove(const std::vector<int>& ids, int anchorId) {
+    // Collect the items in display-list order; the relative order of the moved
+    // items is preserved (Tk semantics).
+    std::vector<int> moved;
+    for (int id : zOrder_) {
+        if (std::find(ids.begin(), ids.end(), id) != ids.end()) moved.push_back(id);
+    }
+    if (moved.empty()) return false;
+
+    for (int id : moved) DetachFromZOrder(id);
+
+    // Without an anchor the items go to the top of the display list.
+    std::vector<int>::iterator anchor = zOrder_.end();
+    if (anchorId != kInvalidId) {
+        const auto it = std::find(zOrder_.begin(), zOrder_.end(), anchorId);
+        if (it != zOrder_.end()) anchor = it;
+    }
+    zOrder_.insert(anchor, moved.begin(), moved.end());
+    return true;
+}
+
+bool CanvasModel::MoveItemsBelow(const std::vector<int>& ids, int anchorId) {
+    std::vector<int> moved;
+    for (int id : zOrder_) {
+        if (std::find(ids.begin(), ids.end(), id) != ids.end()) moved.push_back(id);
+    }
+    if (moved.empty()) return false;
+
+    for (int id : moved) DetachFromZOrder(id);
+
+    // Without an anchor the items go to the bottom of the display list.
+    std::vector<int>::iterator anchor = zOrder_.begin();
+    if (anchorId != kInvalidId) {
+        const auto it = std::find(zOrder_.begin(), zOrder_.end(), anchorId);
+        if (it != zOrder_.end()) anchor = it;
+    }
+    zOrder_.insert(anchor, moved.begin(), moved.end());
+    return true;
+}
+
 std::vector<CanvasItem*> CanvasModel::ItemsInZOrder() const {
     std::vector<CanvasItem*> result;
     result.reserve(zOrder_.size());
@@ -108,6 +148,51 @@ BBox CanvasModel::AllBBox() const {
     BBox result = BBox::Empty();
     for (const auto& [id, item] : items_) result = result.Union(item->GetBBox());
     return result;
+}
+
+int CanvasModel::FindItemAt(double x, double y, double tolerance) const {
+    const Point p{x, y};
+    // Topmost first: the last item in the display list wins.
+    for (auto it = zOrder_.rbegin(); it != zOrder_.rend(); ++it) {
+        const auto* item = FindItem(*it);
+        if (!item) continue;
+        if (item->HitTest(p, tolerance)) return *it;
+    }
+    return kInvalidId;
+}
+
+int CanvasModel::FindClosest(double x, double y, double halo) const {
+    return FindClosestFrom(x, y, halo, kInvalidId);
+}
+
+int CanvasModel::FindClosestFrom(double x, double y, double halo, int startId) const {
+    if (zOrder_.empty()) return kInvalidId;
+
+    // The search starts at `startId` and wraps around the display list.
+    std::size_t start = 0;
+    if (startId != kInvalidId) {
+        const auto it = std::find(zOrder_.begin(), zOrder_.end(), startId);
+        if (it != zOrder_.end()) {
+            start = static_cast<std::size_t>(std::distance(zOrder_.begin(), it));
+        }
+    }
+
+    const Point p{x, y};
+    int best = kInvalidId;
+    double bestDist = 0.0;
+    for (std::size_t i = 0; i < zOrder_.size(); ++i) {
+        const int id = zOrder_[(start + i) % zOrder_.size()];
+        const auto* item = FindItem(id);
+        if (!item) continue;
+        double dist = item->DistanceTo(p) - halo;
+        if (dist < 0.0) dist = 0.0;
+        // "<=" makes the item found last win a tie (Tk behaves the same way).
+        if (best == kInvalidId || dist <= bestDist) {
+            best = id;
+            bestDist = dist;
+        }
+    }
+    return best;
 }
 
 bool CanvasModel::AddTag(int id, const std::string& tag) {
@@ -145,7 +230,11 @@ std::vector<int> CanvasModel::FindWithTag(const std::string& tag) const {
 }
 
 std::vector<std::string> CanvasModel::TagsOf(int id) const {
-    return tags_.TagsOf(id);
+    // The item keeps its tags in insertion order (like Tk); the index is only
+    // used for lookups.
+    const auto* item = FindItem(id);
+    if (!item) return {};
+    return item->Tags();
 }
 
 void CanvasModel::DetachFromZOrder(int id) {

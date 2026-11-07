@@ -41,10 +41,17 @@
   - `itemconfigure` / `itemconfig` / `itemcget` 已实现（`ItemStyle` 存储 + 两阶段解析/应用，全或无）
 - [x] widget 级 `configure` / `cget`（M2 落地，M5 验收）
 
-## 阶段 5：tag / find / bind（M6）
+## 阶段 5：tag / find / bind（M6）✅ 已完成（2026-11-07）
 
-- [ ] `addtag` / `dtag` / `find` (withtag/all/closest) / `gettags`
-- [ ] `tag_bind`：C++ core 命中测试 + Tcl 脚本派发
+- [x] `addtag` / `dtag` / `gettags`
+- [x] `find`（`withtag` / `all` / `above` / `below` / `closest` / `overlapping` / `enclosed`）
+- [x] `tag_bind`：C++ core 命中测试（`CanvasModel::FindItemAt` / `DistanceTo`）+ Tcl 脚本派发
+  - 命中测试在 core：`CanvasItem::DistanceTo`（到路径的距离）+ `CanvasModel::FindItemAt`（顶层优先、容差 = `-closeenough`，默认 1.0）
+  - 派发沿用 Tk 的 binding table
+  - 事件类型与 Tk 的 canvas 一致：只接受 key/button/motion/enter/leave/virtual；虚拟事件可登记但永不触发
+  - item 下的指针位置维护 `current` tag（与 Tk 一致）
+- [x] `raise` / `lower`（z-order，成组移动）
+- [x] 多重绑定与单独解绑
 
 ## 阶段 6：滚动（M7）
 
