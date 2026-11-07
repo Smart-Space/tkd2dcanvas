@@ -75,6 +75,18 @@ Tk 协调；这些走 `CanvasEventBridge`，通过 `Tk_CreateEventHandler` 安�
 渲染实现与运行时行为均为 Direct2D/DirectWrite；构建链接 `d2d1.lib` /
 `dwrite.lib`，不再使用 GDI+。
 
+## Tk ⇄ Win32 集成（本项目最 tricky 的一层）
+
+Tk/Win 上**每个 Tk widget 都拥有一个自己的 Win32 子窗口**（类名 `TkChild`），Tk 把该 widget 的背景画进这个窗口，并把 `WM_PAINT` 投递给它。因此画布不需要“自己造 HWND”，直接用 Tk 给它的那个：
+
+- `CanvasWidget` 通过 `winfo id <path>` 取得自己的 HWND（`ToplevelPainter` →  现为 `WindowHook`），并 **subclass** 它的窗口过程。
+- 绘制顺序：`WM_PAINT` → 先调用原窗口过程（Tk 画 widget 背景）→ 再用 `ID2D1DCRenderTarget` 绑定到 32bpp DIB section 离屏绘制 → `BitBlt` 回同一 DC。坐标是 widget 局部坐标，不需要屏幕/客户区换算。
+- 事件掩码要用 **X11 event mask**（`ExposureMask|StructureNotifyMask|FocusChangeMask`），不是事件类型常量。
+- `Expose` 事件里**不能**再 `Invalidate()`：窗口钩子本来就会在 Tk 绘制后画我们的内容，重复 invalidate 会造成无限重绘循环。
+- `Tk_InitOptions` 必须在 `Tk_SetClass()` **之后**调用：Tk 通过 class 层级查选项数据库，class 未设置时会崩溃。
+
+这样做的收益：Tk 的事件路由、焦点、层级顺序、裁剪全部照旧，只有像素归我们。
+
 ## 已知取舍（0.x）
 
 - `create_window`（WindowItem）不支持，列入 M10。

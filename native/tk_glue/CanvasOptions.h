@@ -1,38 +1,32 @@
-// CanvasOptions.h — widget-level configuration (-width, -height, -background,
-// -scrollregion, ...). Item-level options live in CanvasItemCommand.
+// CanvasOptions.h — widget level configuration of the canvas widget.
+//
+// The options are handled by Tk's own option machinery (Tk_OptionTable +
+// Tk_InitOptions/Tk_SetOptions), so `configure`/`cget` behave like every
+// other Tk widget and the option database works as usual.
 #pragma once
 
 #include <tcl.h>
-
-#include <string>
-#include <vector>
-#include <optional>
-
-struct CanvasOptions {
-    int width = 400;
-    int height = 300;
-    std::string background = "white";
-    std::string cursor;                 // empty = Tk default
-    int borderWidth = 0;
-    int highlightThickness = 0;
-    int xScrollIncrement = 0;
-    int yScrollIncrement = 0;
-    double closeEnough = 2.0;
-    bool confine = true;
-    bool takeFocus = false;
-    std::string scrollRegion;           // "" = not configured
-    std::string xScrollCommand;         // "" = none
-    std::string yScrollCommand;         // "" = none
-    std::vector<std::pair<std::string, std::string>> unknown;  // preserved, warned later
-};
+#include <tk.h>
 
 namespace tkd2dcanvas {
 
-// Parses option/value pairs following the widget path argument.
-// On failure returns false and sets interp error message.
-bool ParseWidgetOptions(Tcl_Interp* interp,
-                        int objc,
-                        Tcl_Obj* const objv[],
-                        CanvasOptions& out);
+struct CanvasWidget;
+
+// Option change masks (the "typeMask" column of the option specs).
+enum CanvasOptionMask {
+    kCanvasOptGeometry = 1 << 0,   // -width/-height/-borderwidth
+    kCanvasOptColour = 1 << 1,     // -background
+    kCanvasOptScroll = 1 << 2,     // -scrollregion/-*scrollcommand
+    kCanvasOptOther = 1 << 3,      // everything else
+};
+
+// Creates the option table for the canvas widget class.
+Tk_OptionTable CreateCanvasOptionTable(Tcl_Interp* interp);
+
+// Applies the option values that changed (mask) to the widget.
+void ApplyCanvasOptions(CanvasWidget& widget, int mask);
+
+// Builds the dictionary returned by `configure` without arguments.
+int CanvasReportOptions(Tcl_Interp* interp, CanvasWidget& widget);
 
 }  // namespace tkd2dcanvas

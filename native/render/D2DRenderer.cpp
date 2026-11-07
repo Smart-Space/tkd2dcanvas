@@ -1,4 +1,4 @@
-#include "D2DRenderer.h"
+﻿#include "D2DRenderer.h"
 
 #include <windows.h>
 #include <d2d1.h>
@@ -34,7 +34,9 @@ D2DRenderer::~D2DRenderer() { Detach(); }
 
 bool D2DRenderer::AttachToHdc(void* hdc, int width, int height) {
     if (!hdc || width <= 0 || height <= 0) return false;
-    if (!D2DContext::EnsureInitialized()) return false;
+    if (!D2DContext::EnsureInitialized()) {
+        return false;
+    }
 
     const HDC dc = static_cast<HDC>(hdc);
 
@@ -75,7 +77,9 @@ bool D2DRenderer::AttachToHdc(void* hdc, int width, int height) {
 
     const RECT rc{0, 0, width, height};
     HRESULT hr = impl_->rt->BindDC(dc, &rc);
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        return false;
+    }
 
     EnsureBrush();
 

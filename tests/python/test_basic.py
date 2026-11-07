@@ -37,7 +37,9 @@ def _skip_unless_implemented(callable_):
 
 
 def test_canvas_creation(canvas):
-    assert str(canvas).count(".") >= 2  # .tkd2dcanvas_N path
+    path = str(canvas)
+    assert path.startswith(".")            # absolute Tk window path
+    assert "tkd2dcanvas" in path
 
 
 def test_create_rectangle(canvas):

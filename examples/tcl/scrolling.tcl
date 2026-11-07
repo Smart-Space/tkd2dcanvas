@@ -17,5 +17,5 @@ foreach i {0 1 2 3 4 5} {
     set x [expr {40 + $i * 120}]
     set y [expr {40 + $i * 90}]
     set fill [expr {$i % 2 == 0 ? "#4f81bd" : "#c0504d"}]
-    .c create rectangle $x $y [expr {$x + 120}] [expr {$y + 80}] -fill $fill
+    # M4: .c create rectangle $x $y [expr {$x + 120}] [expr {$y + 80}] -fill $fill
 }

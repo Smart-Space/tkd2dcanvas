@@ -20,15 +20,9 @@ int Tkd2dcanvasCmd(ClientData /*clientData*/,
 
     const char* pathName = Tcl_GetString(objv[1]);
 
-    CanvasOptions options;
-    if (!ParseWidgetOptions(interp, objc - 2, objv + 2, options)) {
-        return TCL_ERROR;  // message already set on interp
-    }
-
-    CanvasWidget* widget = CanvasWidget::Create(interp, pathName, options);
+    CanvasWidget* widget = CanvasWidget::Create(interp, pathName, objc, objv, 2);
     if (!widget) {
-        // Create() sets the interp error message.
-        return TCL_ERROR;
+        return TCL_ERROR;  // error message already set
     }
 
     Tcl_SetObjResult(interp, Tcl_NewStringObj(pathName, -1));

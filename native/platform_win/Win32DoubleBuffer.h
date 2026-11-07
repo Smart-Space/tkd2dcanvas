@@ -20,7 +20,8 @@ public:
     int Height() const { return height_; }
 
     // Blits the back buffer to the target DC over the given rect (or full buffer).
-    bool Present(HDC target, const RECT* rect = nullptr) const;
+    // (destX, destY) is the position of the back buffer in the target DC.
+    bool Present(HDC target, const RECT* rect = nullptr, int destX = 0, int destY = 0) const;
 
     void Reset();
 

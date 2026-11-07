@@ -36,8 +36,9 @@ public:
     void Invalidate(const BBox& box);   // invalidate a canvas-unit rect
     void InvalidateAll();
 
-    // Paint handler: clears background, runs `painter` for the D2D drawing pass.
-    void Paint(HDC hdc, const RECT* invalidRect, const Painter& painter);
+    // Paint handler: clears background, runs `painter` for the D2D drawing pass
+    // and blits the result to `hdc` at (destX, destY).
+    void Paint(HDC hdc, const RECT* invalidRect, const Painter& painter, int destX = 0, int destY = 0);
 
 private:
     HWND hwnd_ = nullptr;

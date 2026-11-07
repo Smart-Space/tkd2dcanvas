@@ -1,21 +1,62 @@
-#include "CanvasEventBridge.h"
+﻿#include "CanvasEventBridge.h"
 
 #include "CanvasWidget.h"
 
 namespace tkd2dcanvas {
 
-void InstallEventHandlers(CanvasWidget& widget) {
-    // TODO(M6): Tk_CreateEventHandler for ButtonPress/ButtonRelease/Motion/
-    // Enter/Leave/KeyPress/KeyRelease/FocusIn/FocusOut/Configure/Expose/Destroy.
-    // Each handler maps the Tk event onto CanvasInputEvent, performs hit-test
-    // via CanvasModel, then either fires a stored bind script (Tcl_EvalObjv)
-    // or forwards to the default scroll/focus logic in CanvasScrollBridge.
-    (void)widget;
+namespace {
+
+void CanvasEventProc(ClientData clientData, XEvent* eventPtr) {
+    auto* widget = static_cast<CanvasWidget*>(clientData);
+    if (!widget || !eventPtr) return;
+
+    switch (eventPtr->type) {
+        case ConfigureNotify:
+            widget->UpdateGeometry();
+            widget->Invalidate();
+            break;
+
+        case Expose:
+            // The window hook paints the canvas right after Tk painted the
+            // widget's background, so there is nothing to invalidate here
+            // (invalidating would cause an endless paint loop).
+            widget->UpdateGeometry();
+            break;
+
+        case MapNotify:
+            widget->mapped = true;
+            widget->UpdateGeometry();
+            widget->Invalidate();
+            break;
+
+        case UnmapNotify:
+            widget->mapped = false;
+            break;
+
+        case DestroyNotify:
+            // Deleting our Tcl command triggers CanvasWidget::CommandDeleted,
+            // which frees the widget. Do not touch `widget` afterwards.
+            if (widget->command) {
+                Tcl_DeleteCommandFromToken(widget->interp, widget->command);
+            }
+            break;
+
+        default:
+            break;
+    }
 }
 
-void RemoveEventHandlers(CanvasWidget& widget) {
-    // TODO(M6): Tk_DeleteEventHandler for every eventMask installed above.
-    (void)widget;
+}  // namespace
+
+void InstallEventHandlers(CanvasWidget& widget) {
+    if (!widget.tkwin) return;
+
+    // The mask uses X11 event masks (like Tk's own canvas does):
+    // ExposureMask covers Expose, StructureNotifyMask covers
+    // ConfigureNotify/MapNotify/UnmapNotify/DestroyNotify.
+    Tk_CreateEventHandler(widget.tkwin,
+                          ExposureMask | StructureNotifyMask | FocusChangeMask,
+                          CanvasEventProc, &widget);
 }
 
 }  // namespace tkd2dcanvas

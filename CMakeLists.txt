@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.26)
+﻿cmake_minimum_required(VERSION 3.26)
 project(tkd2dcanvas LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -103,6 +103,7 @@ add_library(tkd2dcanvas SHARED
     native/tk_glue/CanvasTkFont.cpp
     native/tk_glue/CanvasTkImage.cpp
     native/tk_glue/CanvasTkWindowItem.cpp
+    native/tk_glue/WindowHook.cpp
 )
 
 target_include_directories(tkd2dcanvas PRIVATE

@@ -1,4 +1,4 @@
-#include "Win32Surface.h"
+﻿#include "Win32Surface.h"
 
 #include "D2DRenderer.h"
 
@@ -40,7 +40,7 @@ void Win32Surface::InvalidateAll() {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-void Win32Surface::Paint(HDC hdc, const RECT* invalidRect, const Painter& painter) {
+void Win32Surface::Paint(HDC hdc, const RECT* invalidRect, const Painter& painter, int destX, int destY) {
     if (!hdc || width_ <= 0 || height_ <= 0) return;
 
     if (!backBuffer_.Prepare(hdc, width_, height_)) {
@@ -57,5 +57,5 @@ void Win32Surface::Paint(HDC hdc, const RECT* invalidRect, const Painter& painte
     }
 
     // Blit to the target DC.
-    backBuffer_.Present(hdc, invalidRect);
+    backBuffer_.Present(hdc, invalidRect, destX, destY);
 }

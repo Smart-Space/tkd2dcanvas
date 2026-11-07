@@ -61,7 +61,10 @@ class Canvas:
     # --- internals ----------------------------------------------------------
     @staticmethod
     def _new_path(master: tkinter.Misc) -> str:
-        return f"{master._w}.tkd2dcanvas_{next(_counter)}"
+        # The widget path must be absolute for Tk ("." + name, not ".." + name).
+        name = f"tkd2dcanvas_{next(_counter)}"
+        base = master._w
+        return f".{name}" if base == "." else f"{base}.{name}"
 
     @property
     def tk_path(self) -> str:

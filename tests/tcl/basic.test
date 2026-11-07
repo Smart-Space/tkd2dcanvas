@@ -1,4 +1,4 @@
-# basic.test — M0 smoke test: the package loads and reports a version.
+# basic.test — M0 (package loads) + M1/M2 (widget creation, options).
 package require tcltest
 namespace import ::tcltest::*
 
@@ -10,6 +10,37 @@ if {[catch {package require tkd2dcanvas} err]} {
 test package-loads "package require works" -body {
     package present tkd2dcanvas
 } -result "0.1"
+
+test widget-create "the widget command creates a Tk window" -body {
+    set path [tkd2dcanvas .c -width 320 -height 200 -background tomato]
+    set path
+} -result ".c"
+
+test widget-exists "the window exists" -body {
+    winfo exists .c
+} -result 1
+
+test widget-class "the widget reports the Canvas class" -body {
+    winfo class .c
+} -result "Canvas"
+
+test widget-cget "options can be read back" -body {
+    list [.c cget -width] [.c cget -height] [.c cget -background]
+} -result {320 200 tomato}
+
+test widget-configure "options can be changed" -body {
+    .c configure -background steelblue
+    .c cget -background
+} -result "steelblue"
+
+test widget-configure-dict "configure without options reports a dictionary" -body {
+    dict get [.c configure] -width
+} -result 320
+
+test widget-destroy "the widget can be destroyed" -body {
+    destroy .c
+    winfo exists .c
+} -result 0
 
 if {![info exists ::tkg_all_in_progress]} {
     cleanupTests

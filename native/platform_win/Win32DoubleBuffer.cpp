@@ -32,7 +32,7 @@ bool Win32DoubleBuffer::Prepare(HDC target, int width, int height) {
     return true;
 }
 
-bool Win32DoubleBuffer::Present(HDC target, const RECT* rect) const {
+bool Win32DoubleBuffer::Present(HDC target, const RECT* rect, int destX, int destY) const {
     if (!target || !memDc_) return false;
 
     RECT full{0, 0, width_, height_};
@@ -41,7 +41,8 @@ bool Win32DoubleBuffer::Present(HDC target, const RECT* rect) const {
     const int h = r.bottom - r.top;
     if (w <= 0 || h <= 0) return false;
 
-    return BitBlt(target, r.left, r.top, w, h, memDc_, r.left, r.top, SRCCOPY) == TRUE;
+    return BitBlt(target, destX + r.left, destY + r.top, w, h,
+                  memDc_, r.left, r.top, SRCCOPY) == TRUE;
 }
 
 void Win32DoubleBuffer::Reset() {

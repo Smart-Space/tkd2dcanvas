@@ -11,7 +11,10 @@
 
 namespace tkd2dcanvas {
 
-// Widget-bound ClientData is a CanvasWidget*.
-Tcl_ObjCmdProc Tkd2dcanvasWidgetCmd;
+struct CanvasWidget;
+
+// Handles the item related subcommands of a canvas widget command.
+// `objv[0]` is the widget command itself, `objv[1]` the subcommand.
+int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]);
 
 }  // namespace tkd2dcanvas

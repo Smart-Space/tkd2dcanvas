@@ -5,8 +5,10 @@
 > 渲染后端为 **Direct2D / DirectWrite**（`d2d1` / `dwrite`，Win7 SP1+ 自带）。
 > 运行时依赖 Windows 7 SP1+ 自带的 `d2d1.dll` / `dwrite.dll`，无需捆绑。
 
-> 当前状态：代码骨架期（0.1.0）。核心模型、渲染器和 Tk 胶水层均为占位实现，
-> 尚不能用作实际绘制。详见 [docs/roadmap.md](docs/roadmap.md)。
+> 当前状态：代码骨架期（0.1.0）。**M0–M3 已完成**：Tcl package 可加载、
+> `tkd2dcanvas .c -width 400 -height 300` 能创建真实 Tk widget 并用 Direct2D
+> 绘制背景；item 命令（create/coords/move…）尚未实现。详见
+> [docs/roadmap.md](docs/roadmap.md)。
 
 ## Python 侧最终目标
 
