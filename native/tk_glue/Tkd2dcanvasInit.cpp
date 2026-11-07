@@ -32,7 +32,7 @@ Tkd2dcanvas_Init(Tcl_Interp* interp)
         return TCL_ERROR;
     }
 
-    // Make "rectangle" / "oval" / "line" creatable.
+    // Make the built-in item types creatable.
     tkd2dcanvas::RegisterBuiltinItems();
 
     if (tkd2dcanvas::RegisterCommands(interp) != TCL_OK) {

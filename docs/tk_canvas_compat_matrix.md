@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | `create_rectangle` | ✅ (M4) | 首批 item：rect/oval/line |
 | `create_oval` | ✅ (M4) | |
-| `create_line` | ✅ (M4) | 支持多点折线；-fill 作画笔颜色 |
-| `create_polygon` | ⬜ (M4/M9) | 之后实现 |
-| `create_arc` | ⬜ (M9) | |
+| `create_line` | ✅ (M4) | 支持多点折线；-fill 作画笔颜色；-joinstyle bevel/miter/round（默认 round）；-capstyle butt/projecting/round（默认 butt） |
+| `create_polygon` | ✅ (M4) | 默认黑色填充；支持多点折线；-joinstyle bevel/miter/round（默认 round） |
+| `create_arc` | ✅ (M4) | 含 -start/-extent/-style（pieslice/chord/arc） |
 | `create_text` | ⬜ (M4 基础 / M9 增强) | font/anchor/justify |
 | `create_image` | ⬜ (M9) | 依赖 Tk photo |
 | `create_bitmap` | ⬜ (M9) | XBM |
@@ -18,9 +18,9 @@
 | `coords` | ✅ (M4/M5) | 支持 tag/id 并集；单个 list 参数亦可 |
 | `move` | ✅ (M4/M5) | |
 | `delete` | ✅ (M4/M5) | |
-| `itemconfigure` / `itemconfig` | ⬜ (M5) | |
-| `itemcget` | ⬜ (M5) | |
-| `config` / `configure` | ⬜ (M5) | widget 级选项 |
+| `itemconfigure` / `itemconfig` | ✅ (M5) | 支持 tag/id 并集设置；无选项时报告 dict |
+| `itemcget` | ✅ (M5) | 返回首项匹配值；颜色以 #rrggbb 返回 |
+| `config` / `configure` | ✅ (M2/M5) | widget 级选项已实现、M5 验收 |
 | `cget` | ⬜ (M5) | |
 | `bbox` | ✅ (M4/M5) | 多 item 取并集；无匹配返回空串 |
 | `find_withtag` / `find_all` / `find_closest` / `find_overlapping` / `find_enclosed` | ⬜ (M6) | |

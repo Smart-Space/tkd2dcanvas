@@ -1,11 +1,13 @@
 #include "CanvasItemCommand.h"
 
 #include <algorithm>
+#include <cctype>
 #include <climits>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -50,6 +52,11 @@ void InvalidateItem(CanvasWidget& widget, const CanvasItem& item) {
     InvalidatePadded(widget, item.GetBBox(), item.Style().width);
 }
 
+// Invalidates around an item using `padWidth` as the stroke width.
+void InvalidateItem(CanvasWidget& widget, const CanvasItem& item, double padWidth) {
+    InvalidatePadded(widget, item.GetBBox(), padWidth);
+}
+
 // Resolves Tk-style item specs (item id / "all" / tag name) in
 // objv[firstArg, limit) to a deduplicated list of existing item ids.
 // A purely numeric spec that does not name an existing item is an error
@@ -86,6 +93,15 @@ bool ResolveItemSpecs(CanvasWidget& widget, Tcl_Interp* interp,
             for (int id : widget.model.FindWithTag(spec)) append(id);
         }
     }
+
+    // Sort by z-order: tag lookups come out of an unordered multimap, and
+    // query commands take the *first* matching item, so the order must be
+    // deterministic.
+    const std::vector<int> zOrder = widget.model.AllItemIds();
+    std::unordered_map<int, int> position;
+    position.reserve(zOrder.size());
+    for (int i = 0; i < static_cast<int>(zOrder.size()); ++i) position.emplace(zOrder[i], i);
+    std::stable_sort(out.begin(), out.end(), [&](int a, int b) { return position[a] < position[b]; });
     return true;
 }
 
@@ -175,25 +191,15 @@ int CreateItemCmd(CanvasWidget& widget, Tcl_Interp* interp,
     const int id = widget.model.CreateItem(std::move(item));
     CanvasItem* created = widget.model.FindItem(id);  // never null at this point
 
-    // Remaining arguments are "-option value" pairs.
-    while (index < objc) {
-        const char* option = Tcl_GetString(objv[index]);
-        if (option[0] != '-') {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("expected option but got \"%s\"", option));
-            widget.model.DeleteItem(id);
-            return TCL_ERROR;
-        }
-        if (index + 1 >= objc) {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("missing value for option \"%s\"", option));
-            widget.model.DeleteItem(id);
-            return TCL_ERROR;
-        }
-        if (!ApplyItemOption(interp, widget, id, *created, option, objv[index + 1])) {
-            widget.model.DeleteItem(id);
-            return TCL_ERROR;
-        }
-        index += 2;
+    // Remaining arguments are "-option value" pairs. Parse + check first
+    // (nothing is applied), then apply: a bad option deletes the half-item.
+    ItemConfig config;
+    if (!ParseItemConfig(interp, widget, /*firstArg=*/index, objc, objv, config) ||
+        !CheckItemConfig(interp, *created, config)) {
+        widget.model.DeleteItem(id);
+        return TCL_ERROR;
     }
+    ApplyItemConfig(widget, id, *created, config);
 
     InvalidateItem(widget, *created);
     Tcl_SetObjResult(interp, Tcl_NewIntObj(id));
@@ -358,6 +364,105 @@ int BBoxCmd(CanvasWidget& widget, Tcl_Interp* interp,
     return TCL_OK;
 }
 
+int ItemConfigureCmd(CanvasWidget& widget, Tcl_Interp* interp,
+                     int objc, Tcl_Obj* const objv[]) {
+    if (objc < 3) {
+        Tcl_WrongNumArgs(interp, 2, objv, "itemconfigure tagOrId ?-option value? ...");
+        return TCL_ERROR;
+    }
+
+    std::vector<int> ids;
+    if (!ResolveItemSpecs(widget, interp, objv, /*firstArg=*/2, /*limit=*/3, ids)) {
+        return TCL_ERROR;
+    }
+
+    if (objc == 3) {
+        // Report mode: dict of the first matching item's options.
+        if (ids.empty()) {
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("no such item or tag \"%s\"", Tcl_GetString(objv[2])));
+            return TCL_ERROR;
+        }
+        CanvasItem* item = widget.model.FindItem(ids.front());
+        if (!item) return TCL_ERROR;
+        Tcl_SetObjResult(interp, ItemConfigReport(interp, *item));
+        return TCL_OK;
+    }
+
+    ItemConfig config;
+    if (!ParseItemConfig(interp, widget, /*firstArg=*/3, objc, objv, config)) {
+        return TCL_ERROR;  // nothing applied anywhere
+    }
+    for (int id : ids) {
+        CanvasItem* item = widget.model.FindItem(id);
+        if (!item) continue;
+        if (!CheckItemConfig(interp, *item, config)) return TCL_ERROR;
+    }
+    for (int id : ids) {
+        CanvasItem* item = widget.model.FindItem(id);
+        if (!item) continue;
+        const double oldWidth = item->Style().width;
+        ApplyItemConfig(widget, id, *item, config);
+        InvalidateItem(widget, *item, std::max(oldWidth, item->Style().width));
+    }
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+    return TCL_OK;
+}
+
+int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
+                int objc, Tcl_Obj* const objv[]) {
+    if (objc != 4) {
+        Tcl_WrongNumArgs(interp, 2, objv, "itemcget tagOrId option");
+        return TCL_ERROR;
+    }
+
+    // Normalize the option name (leading dash stripped, lowercased).
+    const char* raw = Tcl_GetString(objv[3]);
+    std::string name = raw ? raw : "";
+    if (!name.empty() && name.front() == '-') name.erase(name.begin());
+    for (auto& c : name) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    static const char* kOptions[] = {"fill", "outline", "width", "dash", "tags",
+                                     "start", "extent", "style", "joinstyle", "capstyle"};
+    bool known = false;
+    for (const char* option : kOptions) {
+        if (name == option) { known = true; break; }
+    }
+    if (!known) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("unknown option \"%s\"", raw));
+        return TCL_ERROR;
+    }
+
+    std::vector<int> ids;
+    if (!ResolveItemSpecs(widget, interp, objv, /*firstArg=*/2, /*limit=*/3, ids)) {
+        return TCL_ERROR;
+    }
+    if (ids.empty()) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("no such item or tag \"%s\"", Tcl_GetString(objv[2])));
+        return TCL_ERROR;
+    }
+    CanvasItem* item = widget.model.FindItem(ids.front());
+    if (!item) return TCL_ERROR;
+
+    const bool arcOnly = (name == "start" || name == "extent" || name == "style");
+    if (arcOnly && item->Type() != "arc") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    if (name == "joinstyle" &&
+        item->Type() != "line" && item->Type() != "polygon") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-joinstyle\" is not valid for %s items", item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    if (name == "capstyle" && item->Type() != "line") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-capstyle\" is not valid for %s items", item->Type().c_str()));
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, Tcl_NewStringObj(ItemOptionValueString(*item, name.c_str()).c_str(), -1));
+    return TCL_OK;
+}
+
 }  // namespace
 
 int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
@@ -380,14 +485,10 @@ int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
         return BBoxCmd(widget, interp, objc, objv);
     }
     if (cmd == "itemconfigure" || cmd == "itemconfig") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: itemconfigure is not implemented yet (milestone M5)", -1));
-        return TCL_ERROR;
+        return ItemConfigureCmd(widget, interp, objc, objv);
     }
     if (cmd == "itemcget") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: itemcget is not implemented yet (milestone M5)", -1));
-        return TCL_ERROR;
+        return ItemCgetCmd(widget, interp, objc, objv);
     }
     if (cmd == "addtag" || cmd == "dtag" || cmd == "gettags") {
         Tcl_SetObjResult(interp, Tcl_NewStringObj(

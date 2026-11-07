@@ -61,6 +61,7 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
   Expose/Configure 事件驱动 `Paint()`。
 - `tk_glue`：`Tkd2dcanvas_Init`（package 入口，初始化 D2D/DWrite
   factory）、`tkd2dcanvas` 全局命令、`CanvasWidget`、各子命令分发。
+- `ItemRegistrations.cpp`：把 `rectangle`/`oval`/`line` 注册进 `ItemFactory`。
 
 ## 事件模型决策
 

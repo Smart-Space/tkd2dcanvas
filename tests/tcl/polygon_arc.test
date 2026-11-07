@@ -1,0 +1,365 @@
+# polygon_arc.test — M4 补充: polygon / arc items
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP polygon_arc.test: $err"
+    exit 0
+}
+
+tkd2dcanvas .c -width 320 -height 240
+
+# --- polygon -----------------------------------------------------------------
+test polygon-create-id "create polygon returns an integer id" -body {
+    set id [.c create polygon 10 10 100 10 55 90 -fill red]
+    expr {$id > 0}
+} -result 1
+
+test polygon-coords-roundtrip "polygon stores every point" -body {
+    set id [.c create polygon 0 0 50 50 100 0]
+    .c coords $id
+} -result "0 0 50 50 100 0"
+
+test polygon-more-points "polygon accepts many points" -body {
+    set id [.c create polygon 0 0 30 0 50 40 30 80 0 40]
+    .c coords $id
+} -result "0 0 30 0 50 40 30 80 0 40"
+
+test polygon-wrong-coords "polygon requires at least 6 coordinates (even)" -body {
+    catch {.c create polygon 0 0 10 10} msg
+    set msg
+} -match glob -result "wrong # coordinates:*"
+
+test polygon-odd-count "polygon requires an even number of coordinates" -body {
+    catch {.c create polygon 0 0 10 10 20 20 30} msg
+    set msg
+} -match glob -result "wrong # coordinates:*"
+
+test polygon-default-fill "polygon defaults to a black fill, no outline" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    list [.c itemcget $id -fill] [.c itemcget $id -outline]
+} -result {{#000000} {}}
+
+test polygon-outline "polygon accepts an outline color" -body {
+    set id [.c create polygon 0 0 10 0 5 10 -fill yellow -outline green -width 2]
+    list [.c itemcget $id -fill] [.c itemcget $id -outline] [.c itemcget $id -width]
+} -result {{#ffff00} #008000 2}
+
+test polygon-empty-fill "polygon with empty fill is not painted" -body {
+    set id [.c create polygon 0 0 10 0 5 10 -fill {}]
+    .c itemcget $id -fill
+} -result {}
+
+test polygon-bbox "bbox covers all polygon points" -body {
+    set id [.c create polygon 20 10 100 40 40 90]
+    .c bbox $id
+} -result "20 10 100 90"
+
+test polygon-move "move translates every point" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c move $id 100 50
+    .c coords $id
+} -result "100 50 110 50 105 60"
+
+test polygon-coords-set "coords can rewrite polygon points" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c coords $id 5 5 15 5 10 15
+    .c coords $id
+} -result "5 5 15 5 10 15"
+
+test polygon-coords-set-wrong-arity "coords with the wrong arity changes nothing" -body {
+    set id [.c create polygon 1 2 3 4 5 6]
+    catch {.c coords $id 1 2 3 4} msg
+    list [string match "wrong # coordinates*" $msg] [.c coords $id]
+} -result {1 {1 2 3 4 5 6}}
+
+test polygon-hit-style-option "style is rejected for polygon items" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    catch {.c itemconfigure $id -style chord} msg
+    set msg
+} -result "option \"-style\" is not valid for polygon items"
+
+# --- arc ---------------------------------------------------------------------
+test arc-create-id "create arc returns an integer id" -body {
+    set id [.c create arc 0 0 100 100]
+    expr {$id > 0}
+} -result 1
+
+test arc-defaults "arc defaults to start 0 / extent 90 / pieslice" -body {
+    set id [.c create arc 0 0 100 100]
+    list [.c itemcget $id -start] [.c itemcget $id -extent] [.c itemcget $id -style]
+} -result "0 90 pieslice"
+
+test arc-default-outline "arc defaults to a black outline, no fill" -body {
+    set id [.c create arc 0 0 100 100]
+    list [.c itemcget $id -outline] [.c itemcget $id -fill]
+} -result {{#000000} {}}
+
+test arc-create-with-options "arc accepts -start/-extent/-style" -body {
+    set id [.c create arc 0 0 100 100 -start 30 -extent 120 -style chord]
+    list [.c itemcget $id -start] [.c itemcget $id -extent] [.c itemcget $id -style]
+} -result "30 120 chord"
+
+test arc-style-arc "-style arc is accepted and not filled" -body {
+    set id [.c create arc 0 0 100 100 -extent 180 -style arc]
+    .c itemcget $id -style
+} -result "arc"
+
+test arc-style-pieslice "-style pieslice is accepted" -body {
+    set id [.c create arc 0 0 100 100 -style pieslice]
+    .c itemcget $id -style
+} -result "pieslice"
+
+test arc-bad-style "bad -style values error" -body {
+    set id [.c create arc 0 0 100 100]
+    catch {.c itemconfigure $id -style bogus} msg
+    set msg
+} -match glob -result "bad -style*"
+
+test arc-configure-angles "itemconfigure rewrites -start/-extent" -body {
+    set id [.c create arc 0 0 100 100]
+    .c itemconfigure $id -start 45 -extent 180
+    list [.c itemcget $id -start] [.c itemcget $id -extent]
+} -result "45 180"
+
+test arc-negative-extent "negative -extent is accepted (clockwise sweep)" -body {
+    set id [.c create arc 0 0 100 100]
+    .c itemconfigure $id -extent -90
+    .c itemcget $id -extent
+} -result -90
+
+test arc-configure-style "itemconfigure rewrites -style" -body {
+    set id [.c create arc 0 0 100 100]
+    .c itemconfigure $id -style chord
+    .c itemcget $id -style
+} -result "chord"
+
+test arc-configure-all-three "itemconfigure rewrites angles and style together" -body {
+    set id [.c create arc 0 0 100 100]
+    .c itemconfigure $id -start 200 -extent 123 -style arc
+    list [.c itemcget $id -start] [.c itemcget $id -extent] [.c itemcget $id -style]
+} -result "200 123 arc"
+
+test arc-start-bad-number "-start must be a number" -body {
+    set id [.c create arc 0 0 100 100]
+    catch {.c itemconfigure $id -start north} msg
+    set msg
+} -match glob -result "bad start*"
+
+test arc-options-on-rect "-start is rejected on rectangle items" -body {
+    set id [.c create rectangle 0 0 100 100]
+    catch {.c itemconfigure $id -start 45} msg
+    set msg
+} -result "option \"-start\" is not valid for rectangle items"
+
+test arc-options-on-line "-style is rejected on line items" -body {
+    set id [.c create line 0 0 10 10]
+    catch {.c itemconfigure $id -style arc} msg
+    set msg
+} -result "option \"-style\" is not valid for line items"
+
+test arc-create-options-on-rect "-start at create time is rejected on rectangle" -body {
+    catch {.c create rectangle 0 0 100 100 -start 45} msg
+    set msg
+} -result "option \"-start\" is not valid for rectangle items"
+
+test arc-atomic "mixed bad option in one call changes nothing" -body {
+    set id [.c create rectangle 0 0 100 100 -width 2]
+    catch {.c itemconfigure $id -width 9 -start 45} msg
+    list [expr {[string length $msg] > 0}] [.c itemcget $id -width]
+} -result {1 2}
+
+test arc-bbox "arc bbox is the full ellipse bounds" -body {
+    set id [.c create arc 10 20 110 120 -start 30 -extent 60]
+    .c bbox $id
+} -result "10 20 110 120"
+
+test arc-coords-roundtrip "arc coords round-trip" -body {
+    set id [.c create arc 10 20 110 120]
+    .c coords $id
+} -result "10 20 110 120"
+
+test arc-move "move translates the ellipse bounds" -body {
+    set id [.c create arc 10 20 110 120]
+    .c move $id 5 5
+    .c coords $id
+} -result "15 25 115 125"
+
+test arc-itemcget-on-rect "itemcget -start on a rectangle errors" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemcget $id -start} msg
+    set msg
+} -result "option \"-start\" is not valid for rectangle items"
+
+# --- -joinstyle (line / polygon only, Tk parity, default round) -----------------
+test polygon-joinstyle-default "polygon defaults to joinstyle round" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c itemcget $id -joinstyle
+} -result "round"
+
+test polygon-joinstyle-roundtrip "polygon accepts bevel/miter/round" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c itemconfigure $id -joinstyle bevel
+    set r1 [.c itemcget $id -joinstyle]
+    .c itemconfigure $id -joinstyle miter
+    set r2 [.c itemcget $id -joinstyle]
+    .c itemconfigure $id -joinstyle round
+    set r3 [.c itemcget $id -joinstyle]
+    list $r1 $r2 $r3
+} -result {bevel miter round}
+
+test polygon-joinstyle-at-create "polygon -joinstyle is parsed at creation time" -body {
+    set id [.c create polygon 0 0 10 0 5 10 -joinstyle miter]
+    .c itemcget $id -joinstyle
+} -result "miter"
+
+test polygon-joinstyle-prefix "joinstyle accepts Tk-style abbreviations" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c itemconfigure $id -joinstyle b
+    set r1 [.c itemcget $id -joinstyle]
+    .c itemconfigure $id -joinstyle bev
+    set r2 [.c itemcget $id -joinstyle]
+    .c itemconfigure $id -joinstyle r
+    set r3 [.c itemcget $id -joinstyle]
+    list $r1 $r2 $r3
+} -result {bevel bevel round}
+
+test polygon-joinstyle-case-insensitive "joinstyle is case-insensitive" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c itemconfigure $id -joinstyle ROUND
+    .c itemcget $id -joinstyle
+} -result "round"
+
+test polygon-joinstyle-bad "bad join style errors and changes nothing" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    catch {.c itemconfigure $id -joinstyle bogus} msg
+    list [string match "bad join style*" $msg] [.c itemcget $id -joinstyle]
+} -result {1 round}
+
+test polygon-joinstyle-on-rect "joinstyle is rejected on rectangle items" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -joinstyle round} msg
+    set msg
+} -result "option \"-joinstyle\" is not valid for rectangle items"
+
+test polygon-joinstyle-on-arc "joinstyle is rejected on arc items" -body {
+    set id [.c create arc 0 0 10 10]
+    catch {.c itemconfigure $id -joinstyle round} msg
+    set msg
+} -result "option \"-joinstyle\" is not valid for arc items"
+
+test polygon-joinstyle-report "arc/polygon report includes -joinstyle only for those items" -body {
+    set pid [.c create polygon 0 0 10 0 5 10]
+    set rid [.c create rectangle 0 0 10 10]
+    list [dict exists [.c itemconfigure $pid] -joinstyle] [dict exists [.c itemconfigure $rid] -joinstyle]
+} -result {1 0}
+
+test line-joinstyle-default "line defaults to joinstyle round" -body {
+    set id [.c create line 0 0 10 10]
+    .c itemcget $id -joinstyle
+} -result "round"
+
+test line-joinstyle-roundtrip "line accepts bevel/miter/round" -body {
+    set id [.c create line 0 0 10 10]
+    .c itemconfigure $id -joinstyle bevel
+    set r1 [.c itemcget $id -joinstyle]
+    .c itemconfigure $id -joinstyle miter
+    set r2 [.c itemcget $id -joinstyle]
+    list $r1 $r2
+} -result {bevel miter}
+
+test line-joinstyle-on-rect "joinstyle is rejected for rectangle items via line path" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemcget $id -joinstyle} msg
+    set msg
+} -result "option \"-joinstyle\" is not valid for rectangle items"
+
+test line-joinstyle-atomic "mixed bad joinstyle in a multi-option call changes nothing" -body {
+    set id [.c create line 0 0 10 10 -width 2]
+    catch {.c itemconfigure $id -width 5 -joinstyle bogus} msg
+    list [string match "bad join style*" $msg] [.c itemcget $id -width]
+} -result {1 2}
+
+# --- -capstyle (line only, Tk parity, default butt) ---------------------------
+test line-capstyle-default "line defaults to capstyle butt" -body {
+    set id [.c create line 0 0 10 10]
+    .c itemcget $id -capstyle
+} -result "butt"
+
+test line-capstyle-roundtrip "line accepts butt/projecting/round" -body {
+    set id [.c create line 0 0 10 10]
+    .c itemconfigure $id -capstyle projecting
+    set r1 [.c itemcget $id -capstyle]
+    .c itemconfigure $id -capstyle round
+    set r2 [.c itemcget $id -capstyle]
+    .c itemconfigure $id -capstyle butt
+    set r3 [.c itemcget $id -capstyle]
+    list $r1 $r2 $r3
+} -result {projecting round butt}
+
+test line-capstyle-at-create "-capstyle is parsed at creation time" -body {
+    set id [.c create line 0 0 10 10 -capstyle round]
+    .c itemcget $id -capstyle
+} -result "round"
+
+test line-capstyle-prefix "capstyle accepts Tk-style abbreviations" -body {
+    set id [.c create line 0 0 10 10]
+    .c itemconfigure $id -capstyle b
+    set r1 [.c itemcget $id -capstyle]
+    .c itemconfigure $id -capstyle p
+    set r2 [.c itemcget $id -capstyle]
+    .c itemconfigure $id -capstyle r
+    set r3 [.c itemcget $id -capstyle]
+    list $r1 $r2 $r3
+} -result {butt projecting round}
+
+test line-capstyle-case-insensitive "capstyle is case-insensitive" -body {
+    set id [.c create line 0 0 10 10]
+    .c itemconfigure $id -capstyle ROUND
+    .c itemcget $id -capstyle
+} -result "round"
+
+test line-capstyle-bad "bad cap style errors and changes nothing" -body {
+    set id [.c create line 0 0 10 10]
+    catch {.c itemconfigure $id -capstyle bogus} msg
+    list [string match "bad cap style*" $msg] [.c itemcget $id -capstyle]
+} -result {1 butt}
+
+test line-capstyle-on-rect "capstyle is rejected on rectangle items" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -capstyle round} msg
+    set msg
+} -result "option \"-capstyle\" is not valid for rectangle items"
+
+test line-capstyle-on-polygon "capstyle is rejected on polygon items" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    catch {.c itemconfigure $id -capstyle round} msg
+    set msg
+} -result "option \"-capstyle\" is not valid for polygon items"
+
+test line-capstyle-on-arc "capstyle is rejected on arc items" -body {
+    set id [.c create arc 0 0 10 10]
+    catch {.c itemcget $id -capstyle} msg
+    set msg
+} -result "option \"-capstyle\" is not valid for arc items"
+
+test line-capstyle-atomic "mixed bad capstyle in a multi-option call changes nothing" -body {
+    set id [.c create line 0 0 10 10 -width 2]
+    catch {.c itemconfigure $id -width 5 -capstyle bogus} msg
+    list [string match "bad cap style*" $msg] [.c itemcget $id -width]
+} -result {1 2}
+
+test capstyle-report-line-only "itemconfigure report exposes -capstyle only for lines" -body {
+    set lid [.c create line 0 0 10 10]
+    set pid [.c create polygon 0 0 10 0 5 10]
+    set rid [.c create rectangle 0 0 10 10]
+    list [dict exists [.c itemconfigure $lid] -capstyle] \
+         [dict exists [.c itemconfigure $pid] -capstyle] \
+         [dict exists [.c itemconfigure $rid] -capstyle]
+} -result {1 0 0}
+
+destroy .c
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

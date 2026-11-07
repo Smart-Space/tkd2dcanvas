@@ -26,12 +26,18 @@
 
 - [x] rectangle / oval / line（含 `-fill`、`-outline`、`-width`、`-dash`）
 - [x] item id、`create` 返回、重绘脏区
+- [x] polygon / arc（`-fill`、`-outline`、`-width`、`-dash`；arc 另有 `-start`/`-extent`/`-style`）
+- [x] `-joinstyle`（line/polygon 的拐角风格：bevel/miter/round，Tk 默认 round；其他 item 不开放）
+- [x] `-capstyle`（line 的端点风格：butt/projecting/round，Tk 默认 butt；其他 item 不开放）
+- [ ] polygon `-smooth` / `-splinesteps`（样条平滑多边形；`-splinesteps` 控制曲线离散段数，Tk 默认 12）
+- [ ] arc `-offset`（Tk 通用的 stipple 偏移选项；无 stipple 支持，随公共偏移类选项 `-stipple`/`-dashoffset` 一起落地）
 
-## 阶段 4：基础命令（M5）🚧 部分完成
+## 阶段 4：基础命令（M5）✅ 完成（2026-11-07）
 
-- [ ] `coords` / `move` / `delete` / `itemconfigure` / `itemcget` / `bbox`
-  - `coords` / `move` / `delete` / `bbox` 已随 M4 先落地（tag/id 并集解析、原子回滚）
-- [ ] widget 级 `configure` / `cget`
+- [x] `coords` / `move` / `delete` / `itemconfigure` / `itemcget` / `bbox`
+  - `coords` / `move` / `delete` / `bbox` 已随 M4 先落地（tag/id 并集解析、原子回滚；tag 解析按 z-order 排序）
+  - `itemconfigure` / `itemconfig` / `itemcget` 已实现（`ItemStyle` 存储 + 两阶段解析/应用，全或无）
+- [x] widget 级 `configure` / `cget`（M2 落地，M5 验收）
 
 ## 阶段 5：tag / find / bind（M6）
 

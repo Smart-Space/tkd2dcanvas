@@ -14,6 +14,8 @@ struct ItemStyle {
     std::optional<Color> outline;
     double width = 1.0;          // pen width in canvas units (Tk -width)
     DashPattern dash;            // solid by default (Tk -dash)
+    JoinStyle join = JoinStyle::Round;
+    CapStyle cap = CapStyle::Flat;
 };
 
 // Builds a PenStyle from the style's outline-ish paint channel.

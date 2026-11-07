@@ -1,11 +1,15 @@
 #include "PolygonItem.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "tkd2dcanvas/HitTest.h"
 
 PolygonItem::PolygonItem(Id id, std::vector<Point> points)
-    : CanvasItem(id, "polygon"), points_(std::move(points)) {}
+    : CanvasItem(id, "polygon"), points_(std::move(points)) {
+    // Tk defaults: black fill, no outline.
+    Style().fill = Color{0, 0, 0};
+}
 
 BBox PolygonItem::GetBBox() const {
     if (points_.empty()) return BBox::Empty();
@@ -37,6 +41,38 @@ bool PolygonItem::HitTest(Point p, double tolerance) const {
     return false;
 }
 
-void PolygonItem::Draw(Renderer&) const {
-    // TODO(M4): emit a closed Path; fill + outline.
+std::vector<double> PolygonItem::GetCoordinates() const {
+    std::vector<double> coords;
+    coords.reserve(points_.size() * 2);
+    for (const auto& p : points_) {
+        coords.push_back(p.x);
+        coords.push_back(p.y);
+    }
+    return coords;
+}
+
+bool PolygonItem::SetCoordinates(const std::vector<double>& coords) {
+    if (coords.size() < 6 || coords.size() % 2 != 0) return false;
+    std::vector<Point> points;
+    points.reserve(coords.size() / 2);
+    for (std::size_t i = 0; i < coords.size(); i += 2) {
+        points.push_back(Point{coords[i], coords[i + 1]});
+    }
+    points_ = std::move(points);
+    return true;
+}
+
+void PolygonItem::Draw(Renderer& renderer) const {
+    if (points_.size() < 3) return;
+
+    Path path;
+    path.closed = true;
+    path.points = points_;
+
+    if (const auto& fill = Style().fill) {
+        renderer.fillPath(path, BrushStyle{*fill});
+    }
+    if (const auto& outline = Style().outline) {
+        renderer.drawLine(path, ItemPenStyle(*outline, Style(), CapStyle::Round, Style().join));
+    }
 }

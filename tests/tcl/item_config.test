@@ -1,0 +1,162 @@
+# item_config.test — M5: itemconfigure / itemconfig / itemcget
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP item_config.test: $err"
+    exit 0
+}
+
+tkd2dcanvas .c -width 320 -height 240
+
+test itemcget-defaults "itemcget reports Tk-like defaults" -body {
+    set id [.c create rectangle 0 0 10 10]
+    list [.c itemcget $id -fill] [.c itemcget $id -outline] \
+         [.c itemcget $id -width] [.c itemcget $id -dash] [.c itemcget $id -tags]
+} -result {{} #000000 1 {} {}}
+
+test itemcget-color-names-as-hex "color names come back as hex" -body {
+    set id [.c create rectangle 0 0 10 10 -fill tomato]
+    .c itemcget $id -fill
+} -result "#ff6347"
+
+test itemconfigure-single "sets one option" -body {
+    set id [.c create rectangle 0 0 10 10]
+    .c itemconfigure $id -width 3
+    .c itemcget $id -width
+} -result 3
+
+test itemconfigure-empty-fill "empty fill disables painting" -body {
+    set id [.c create rectangle 0 0 10 10 -fill tomato]
+    .c itemconfigure $id -fill {}
+    .c itemcget $id -fill
+} -result {}
+
+test itemconfigure-dash-roundtrip "dash patterns round-trip" -body {
+    set id [.c create line 0 0 10 10]
+    .c itemconfigure $id -dash {8 4}
+    .c itemcget $id -dash
+} -result "8 4"
+
+test itemconfigure-report "no options reports a dict of all options" -body {
+    set id [.c create rectangle 0 0 10 10 -fill red -width 2]
+    list [dict get [.c itemconfigure $id] -fill] \
+         [dict get [.c itemconfigure $id] -width] \
+         [dict get [.c itemconfigure $id] -outline]
+} -result "{#ff0000} 2 #000000"
+
+test itemconfigure-line-width "fractional widths print without trailing zeros" -body {
+    set id [.c create line 0 0 10 10 -width 2]
+    .c itemconfigure $id -width 2.5
+    .c itemcget $id -width
+} -result 2.5
+
+test itemconfigure-multiple "set applies to every item matching a tag" -body {
+    set a [.c create rectangle 0 0 10 10 -tags multigrp]
+    set b [.c create oval 20 20 30 30 -tags multigrp]
+    .c itemconfigure multigrp -width 5
+    list [.c itemcget $a -width] [.c itemcget $b -width]
+} -result {5 5}
+
+test itemconfigure-cget-by-tag-first "itemcget reports the first (bottom-most) matching item" -body {
+    set a [.c create rectangle 0 0 10 10 -tags firstgrp -width 3]
+    set b [.c create rectangle 20 20 30 30 -tags firstgrp -width 7]
+    .c itemcget firstgrp -width
+} -result 3
+
+test itemconfigure-atomic "an invalid option in a multi-option call changes nothing" -body {
+    set id [.c create rectangle 0 0 10 10 -width 2]
+    catch {.c itemconfigure $id -width 9 -bogus 1} msg
+    list [string match "unknown option*" $msg] [.c itemcget $id -width]
+} -result {1 2}
+
+test itemconfigure-atomic-bad-color "an unresolvable color in a multi-option call changes nothing" -body {
+    set id [.c create rectangle 0 0 10 10 -width 2 -fill tomato]
+    catch {.c itemconfigure $id -width 9 -fill no-such-color-xyz} msg
+    list [expr {[string length $msg] > 0}] [.c itemcget $id -width] [.c itemcget $id -fill]
+} -result {1 2 #ff6347}
+
+test itemconfigure-unknown-option "unknown options error" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -bogus red} msg
+    set msg
+} -result "unknown option \"-bogus\""
+
+test itemconfigure-missing-value "trailing option without value errors" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -fill} msg
+    set msg
+} -result "missing value for option \"-fill\""
+
+test itemconfigure-width-negative "negative width errors and changes nothing" -body {
+    set id [.c create rectangle 0 0 10 10 -width 2]
+    catch {.c itemconfigure $id -width -5} msg
+    .c itemcget $id -width
+} -result 2
+
+test itemconfigure-width-nonnumber "width must be numeric" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -width thick} msg
+    expr {[string length $msg] > 0}
+} -result 1
+
+test itemconfigure-last-wins "repeated options apply last-wins" -body {
+    set id [.c create rectangle 0 0 10 10]
+    .c itemconfigure $id -width 3 -width 7
+    .c itemcget $id -width
+} -result 7
+
+test itemconfigure-tags-replace "-tags replaces the whole tag set" -body {
+    set id [.c create rectangle 0 0 10 10 -tags keep]
+    .c itemconfigure $id -tags {alpha beta}
+    list [.c bbox keep] [.c bbox alpha] [.c bbox beta]
+} -result {{} {0 0 10 10} {0 0 10 10}}
+
+test itemconfigure-tags-single "-tags accepts a single bare tag name" -body {
+    set id [.c create rectangle 0 0 10 10]
+    .c itemconfigure $id -tags one
+    .c bbox one
+} -result "0 0 10 10"
+
+test itemconfigure-tags-clear "empty -tags list clears all tags" -body {
+    set id [.c create rectangle 0 0 10 10 -tags keep]
+    .c itemconfigure $id -tags {}
+    .c bbox keep
+} -result ""
+
+test itemcget-unknown-option "itemcget rejects unknown options" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemcget $id -bogus} msg
+    set msg
+} -result "unknown option \"-bogus\""
+
+test itemcget-unknown-item "itemcget on a missing numeric id errors" -body {
+    catch {.c itemcget 424242 -fill} msg
+    set msg
+} -result "invalid item identifier \"424242\""
+
+test itemconfigure-unknown-item "itemconfigure on a missing numeric id errors" -body {
+    catch {.c itemconfigure 424242 -width 3} msg
+    set msg
+} -result "invalid item identifier \"424242\""
+
+test itemcget-no-such-tag "query on a tag matching nothing errors" -body {
+    catch {.c itemcget no-such-tag -fill} msg
+    set msg
+} -result "no such item or tag \"no-such-tag\""
+
+test itemconfigure-no-match-set "set with an empty tag match is a no-op" -body {
+    .c itemconfigure no-such-tag -width 3
+} -result ""
+
+test itemconfig-alias "itemconfig is an alias for itemconfigure" -body {
+    set id [.c create oval 0 0 10 10]
+    .c itemconfig $id -width 4
+    .c itemcget $id -width
+} -result 4
+
+destroy .c
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

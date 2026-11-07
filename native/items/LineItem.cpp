@@ -69,6 +69,6 @@ void LineItem::Draw(Renderer& renderer) const {
     // alias when -fill is empty.
     const std::optional<Color> paint = Style().fill.has_value() ? Style().fill : Style().outline;
     if (paint) {
-        renderer.drawLine(path, ItemPenStyle(*paint, Style(), CapStyle::Round, JoinStyle::Round));
+        renderer.drawLine(path, ItemPenStyle(*paint, Style(), Style().cap, Style().join));
     }
 }
