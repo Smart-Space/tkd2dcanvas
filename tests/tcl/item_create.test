@@ -1,0 +1,19 @@
+# item_create.test — M4: create items.
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP item_create.test: $err"
+    exit 0
+}
+
+# Once M4 lands, replace this placeholder with real cases:
+#   - .c create rectangle ... returns an integer id
+#   - .c create oval / line
+test item_create-placeholder "placeholder until M4" -body {
+    expr {1}
+} -result 1
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

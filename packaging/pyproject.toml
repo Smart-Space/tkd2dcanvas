@@ -1,0 +1,37 @@
+# tkd2dcanvas — wheel manifest.
+# Build flow: tools/build_windows_wheel.py stages this file together with the
+# python/tkd2dcanvas package and the repo README/LICENSE into a temp dir.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tkd2dcanvas"
+version = "0.1.0"
+description = "Direct2D canvas implementation for Windows, usable from Tcl/Tk and Python tkinter"
+readme = "README.md"
+license = { text = "LGPL-3.0-or-later" }
+requires-python = ">=3.8"
+authors = [
+    { name = "tkd2dcanvas contributors" },
+]
+keywords = ["tkinter", "tcl", "canvas", "direct2d", "directwrite", "windows"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Desktop Environment",
+    "Topic :: Software Development :: Widget Sets",
+]
+
+[tool.setuptools]
+packages = ["tkd2dcanvas"]
+include-package-data = true
+# LGPLv3 requires the GPLv3 text (COPYING) next to the LGPL text (LICENSE).
+license-files = ["LICENSE", "COPYING"]
+
+[tool.setuptools.package-data]
+tkd2dcanvas = ["py.typed", "tcl/tkd2dcanvas/*"]

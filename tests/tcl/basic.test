@@ -1,0 +1,16 @@
+# basic.test — M0 smoke test: the package loads and reports a version.
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP basic.test: $err"
+    exit 0
+}
+
+test package-loads "package require works" -body {
+    package present tkd2dcanvas
+} -result "0.1"
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

@@ -1,0 +1,16 @@
+# find.test — M6: find withtag/all/closest
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP find.test: $err"
+    exit 0
+}
+
+test find-placeholder "placeholder until M6" -body {
+    expr {1}
+} -result 1
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

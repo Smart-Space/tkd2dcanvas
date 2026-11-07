@@ -1,0 +1,33 @@
+# Build directories
+/build/
+out/
+
+# Tcl/Tk SDK and source (fetched separately)
+# NOTE: placeholders (README.md, .gitkeep) are tracked; real dev files are not.
+/third_party/tcltk-src/
+/third_party/tcltk-sdk/include/**
+/third_party/tcltk-sdk/lib/**
+!/third_party/tcltk-sdk/include/.gitkeep
+!/third_party/tcltk-sdk/lib/.gitkeep
+
+# Build outputs
+*.dll
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.obj
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+python/tkd2dcanvas/tcl/tkd2dcanvas/tkd2dcanvas01.dll
+# keep the packaged pkgIndex.tcl tracked (it is part of the wheel layout)
+
+# Editors / OS
+.vs/
+.idea/
+Thumbs.db

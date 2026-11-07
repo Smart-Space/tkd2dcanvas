@@ -1,0 +1,84 @@
+# 架构说明
+
+> 原始规划见 [规划.md](规划.md)。
+> **当前实现**：渲染后端为 **Direct2D / DirectWrite**（`native/render/`），
+> 其余分层与规划一致。变更决策记录见 [performance.md](performance.md)。
+
+## 总体结构
+
+```text
+Python/tkinter
+    │  root.tk.call("tkd2dcanvas", ".c", ...) / root.tk.call(".c", "create", ...)
+    v
+Tcl interpreter
+    │  package require tkd2dcanvas
+    v
+C/C++ Tk widget (native/tk_glue)
+    │  CanvasModel 更新；Win32Surface invalidate
+    v
+Win32 surface / HWND / WM_PAINT (native/platform_win)
+    v
+Direct2D renderer + DirectWrite (native/render)
+```
+
+## 分层与依赖方向
+
+| 层 | 目录 | 依赖 |
+| --- | --- | --- |
+| 核心模型 | `native/include` + `native/core` | 无 |
+| Item 实现 | `native/items` | core |
+| 渲染抽象/实现 | `native/render` | core、d2d1/dwrite |
+| Win32 平台 | `native/platform_win` | Win32、render |
+| Tk 胶水 | `native/tk_glue` | Tcl/Tk、core、platform_win |
+| Tcl package | `tcl/`、`python/.../tcl/` | Tcl |
+| Python 包装 | `python/tkd2dcanvas/` | Python/tkinter |
+
+规则：**依赖只能向下**。`core` 不知道 D2D 和 Tcl 是什么；`render` 不知道
+Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的层。
+
+## 各模块要点
+
+- `CanvasModel`：item 存储（z-order 向量 + id→item 映射）、tag 索引、
+  视图/滚动状态（`CanvasView`）、bbox/hit-test 派发。项目的灵魂。
+- `TagsIndex`：tag ↔ item 双向索引。
+- `ItemFactory`：`"rectangle"` 等字符串 → `CanvasItemPtr`。
+- `Renderer`（`native/include/tkd2dcanvas/Renderer.h`）：抽象接口
+  （`clear / drawLine / fillPath / drawText / drawImage / pushClip / popClip`）。
+  `D2DRenderer`（`native/render/D2DRenderer.cpp`）实现它；将来若需第三种后端，
+  只需再实现该接口。
+- `D2DRenderer`：
+  - 绑定内存 HDC：`ID2D1DCRenderTarget` + 32bpp top-down DIB section
+    （`Win32DoubleBuffer` 按此实现）→ 渲染完成后 `BitBlt` 到目标 DC，无闪烁。
+  - 文字：DirectWrite（`IDWriteTextLayout`，按行绘制，支持
+    bold/italic/underline/strikethrough 与 Tk anchor 九宫格定位），
+    字体走 `FontCache`（`IDWriteTextFormat` 缓存）。
+  - 虚线：`PenCache` 缓存 `ID2D1StrokeStyle`（dash 数组直接来自 `-dash`）。
+  - 裁剪：`SetAxisAlignedClip` / `ResetAxisAlignedClip`，支持嵌套 push/pop
+    （`pushClip` 取交集，`popClip` 恢复）。
+  - 抗锯齿：`SetAntialiasMode(PER_PRIMITIVE)`，文字 ClearType。
+  - 断设备（`D2DERR_RECREATE_TARGET`）：自动丢弃 render target，下一帧重建。
+- `Win32Surface`：32bpp 双缓冲 + D2D 绘制 + `BitBlt`；由 Tk 的
+  Expose/Configure 事件驱动 `Paint()`。
+- `tk_glue`：`Tkd2dcanvas_Init`（package 入口，初始化 D2D/DWrite
+  factory）、`tkd2dcanvas` 全局命令、`CanvasWidget`、各子命令分发。
+
+## 事件模型决策
+
+> Canvas 自己的 `bind` / `tag_bind` / `current` / `focus` 逻辑由 C++ core
+> 管理，不把所有东西塞回标准 Tk 事件。
+
+基础窗口事件（FocusIn/FocusOut、Enter/Leave、TakeFocus、键盘遍历）仍需与
+Tk 协调；这些走 `CanvasEventBridge`，通过 `Tk_CreateEventHandler` 安装。
+
+## 命名说明
+
+渲染实现与运行时行为均为 Direct2D/DirectWrite；构建链接 `d2d1.lib` /
+`dwrite.lib`，不再使用 GDI+。
+
+## 已知取舍（0.x）
+
+- `create_window`（WindowItem）不支持，列入 M10。
+- 图像：`drawImage` 已按 `ID2D1Bitmap*` 实现并处理 transform；Tk photo →
+  D2D bitmap 的转换在 M9（`TkPhotoToRgba` 尚未实现）。
+- D2D 单线程 factory（Tk 主线程）；跨线程访问需改 `FACTORY_TYPE_MULTI_THREADED`。
+- 文字逐行测布局，行高 = `-font` 尺寸 ×1.25（或 `-linespacing` 覆盖，M9）。

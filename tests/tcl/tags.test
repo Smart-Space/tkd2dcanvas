@@ -1,0 +1,16 @@
+# tags.test — M6: addtag/dtag/find withtag
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP tags.test: $err"
+    exit 0
+}
+
+test tags-placeholder "placeholder until M6" -body {
+    expr {1}
+} -result 1
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

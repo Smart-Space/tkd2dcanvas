@@ -1,0 +1,6 @@
+# Wheel contents (staged by tools/build_windows_wheel.py).
+include LICENSE
+include COPYING
+include README.md
+recursive-include tkd2dcanvas/tcl *
+include tkd2dcanvas/py.typed

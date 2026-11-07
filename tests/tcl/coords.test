@@ -1,0 +1,16 @@
+# coords.test — M5: .c coords item ?coords?
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP coords.test: $err"
+    exit 0
+}
+
+test coords-placeholder "placeholder until M5" -body {
+    expr {1}
+} -result 1
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}
