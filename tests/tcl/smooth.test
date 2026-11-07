@@ -1,0 +1,292 @@
+# smooth.test — line/polygon -smooth & -splinesteps, common -dashoffset
+# (M4 leftovers; Tk parity, algorithms ported from tkTrig.c / tkCanvUtil.c).
+# Tk's arc -offset is intentionally unsupported (no stipple plan).
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP smooth.test: $err"
+    exit 0
+}
+
+tkd2dcanvas .c -width 320 -height 240
+
+# --- line -smooth --------------------------------------------------------------
+test line-smooth-default "line defaults to -smooth 0" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemcget $id -smooth
+} -result 0
+
+test line-smooth-at-create "line accepts -smooth true at creation" -body {
+    set id [.c create line 0 0 50 80 100 0 -smooth true]
+    .c itemcget $id -smooth
+} -result true
+
+test line-smooth-raw-at-create "line accepts -smooth raw at creation" -body {
+    set id [.c create line 0 0 10 10 20 0 -smooth raw]
+    .c itemcget $id -smooth
+} -result raw
+
+test line-smooth-one "-smooth 1 means bezier smoothing" -body {
+    set id [.c create line 0 0 10 10 20 0 -smooth 1]
+    .c itemcget $id -smooth
+} -result true
+
+test line-smooth-yes "-smooth yes means bezier smoothing" -body {
+    set id [.c create line 0 0 10 10 20 0 -smooth yes]
+    .c itemcget $id -smooth
+} -result true
+
+test line-smooth-off "-smooth false disables smoothing" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -smooth false
+    .c itemcget $id -smooth
+} -result 0
+
+test line-smooth-prefix-b "-smooth accepts Tk-style prefix abbreviation" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -smooth b
+    .c itemcget $id -smooth
+} -result true
+
+test line-smooth-prefix-be "-smooth 'be' resolves to bezier" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -smooth be
+    .c itemcget $id -smooth
+} -result true
+
+test line-smooth-prefix-tru "-smooth 'tru' resolves to true" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -smooth tru
+    .c itemcget $id -smooth
+} -result true
+
+test line-smooth-prefix-r "-smooth 'r' resolves to raw" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -smooth r
+    .c itemcget $id -smooth
+} -result raw
+
+test line-smooth-case-insensitive "-smooth is case-insensitive" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -smooth RAW
+    .c itemcget $id -smooth
+} -result raw
+
+test line-smooth-bad "bad -smooth value errors and changes nothing" -body {
+    set id [.c create line 0 0 10 10 20 0 -smooth true]
+    catch {.c itemconfigure $id -smooth bogus} msg
+    list [string match "bad -smooth*" $msg] [.c itemcget $id -smooth]
+} -result {1 true}
+
+test line-smooth-on-rect "-smooth is rejected on rectangle items" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -smooth true} msg
+    set msg
+} -result "option \"-smooth\" is not valid for rectangle items"
+
+test line-smooth-on-arc "-smooth is rejected on arc items" -body {
+    set id [.c create arc 0 0 10 10]
+    catch {.c itemconfigure $id -smooth true} msg
+    set msg
+} -result "option \"-smooth\" is not valid for arc items"
+
+test line-smooth-itemconfigure "itemconfigure toggles -smooth" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -smooth true
+    set r1 [.c itemcget $id -smooth]
+    .c itemconfigure $id -smooth false
+    set r2 [.c itemcget $id -smooth]
+    list $r1 $r2
+} -result {true 0}
+
+test line-smooth-coords-unchanged "smoothing does not rewrite the stored coordinates" -body {
+    set id [.c create line 0 0 50 80 100 0 -smooth true]
+    .c coords $id
+} -result "0 0 50 80 100 0"
+
+test line-smooth-report "line report exposes -smooth and -splinesteps" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    list [dict exists [.c itemconfigure $id] -smooth] \
+         [dict exists [.c itemconfigure $id] -splinesteps]
+} -result {1 1}
+
+# --- polygon -smooth -------------------------------------------------------------
+test polygon-smooth-default "polygon defaults to -smooth 0" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c itemcget $id -smooth
+} -result 0
+
+test polygon-smooth-at-create "polygon accepts -smooth true at creation" -body {
+    set id [.c create polygon 0 0 10 0 5 10 -smooth true]
+    .c itemcget $id -smooth
+} -result true
+
+test polygon-smooth-raw-at-create "polygon accepts -smooth raw at creation" -body {
+    set id [.c create polygon 0 0 10 0 5 10 -smooth raw]
+    .c itemcget $id -smooth
+} -result raw
+
+test polygon-smooth-itemconfigure "itemconfigure toggles -smooth" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c itemconfigure $id -smooth true
+    set r1 [.c itemcget $id -smooth]
+    .c itemconfigure $id -smooth false
+    set r2 [.c itemcget $id -smooth]
+    list $r1 $r2
+} -result {true 0}
+
+test polygon-smooth-coords-unchanged "smoothing does not rewrite the stored coordinates" -body {
+    set id [.c create polygon 0 0 50 80 100 0 -smooth true]
+    .c coords $id
+} -result "0 0 50 80 100 0"
+
+test polygon-smooth-closes-implicitly "smoothed polygon closes even without a duplicate vertex" -body {
+    # Two smooth passes around a triangle must produce a stable round-trip.
+    set id [.c create polygon 0 0 100 0 50 100 -smooth true -splinesteps 4]
+    .c move $id 10 10
+    .c coords $id
+} -result "10 10 110 10 60 110"
+
+test polygon-smooth-bbox "smoothed polygon bbox stays the vertex hull (Tk does not expand for curves)" -body {
+    set id [.c create polygon 20 10 100 40 40 90 -smooth true]
+    .c bbox $id
+} -result "20 10 100 90"
+
+test polygon-smooth-on-rect "-smooth is rejected on rectangle items" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -smooth true} msg
+    set msg
+} -result "option \"-smooth\" is not valid for rectangle items"
+
+test polygon-smooth-bad "bad -smooth value errors and changes nothing" -body {
+    set id [.c create polygon 0 0 10 0 5 10 -smooth true]
+    catch {.c itemconfigure $id -smooth bogus} msg
+    list [string match "bad -smooth*" $msg] [.c itemcget $id -smooth]
+} -result {1 true}
+
+# --- -splinesteps -----------------------------------------------------------------
+test line-splinesteps-default "line defaults to -splinesteps 12" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemcget $id -splinesteps
+} -result 12
+
+test polygon-splinesteps-default "polygon defaults to -splinesteps 12" -body {
+    set id [.c create polygon 0 0 10 0 5 10]
+    .c itemcget $id -splinesteps
+} -result 12
+
+test line-splinesteps-at-create "-splinesteps accepted at creation" -body {
+    set id [.c create line 0 0 10 10 20 0 -splinesteps 5]
+    .c itemcget $id -splinesteps
+} -result 5
+
+test line-splinesteps-itemconfigure "itemconfigure rewrites -splinesteps" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -splinesteps 24
+    .c itemcget $id -splinesteps
+} -result 24
+
+test line-splinesteps-clamp-low "-splinesteps below 1 is clamped to 1 (Tk clamps silently)" -body {
+    set id [.c create line 0 0 10 10 20 0 -splinesteps 0]
+    set r1 [.c itemcget $id -splinesteps]
+    .c itemconfigure $id -splinesteps -3
+    set r2 [.c itemcget $id -splinesteps]
+    list $r1 $r2
+} -result {1 1}
+
+test line-splinesteps-clamp-high "-splinesteps above 100 is clamped to 100 (Tk clamps silently)" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    .c itemconfigure $id -splinesteps 1000
+    .c itemcget $id -splinesteps
+} -result 100
+
+test line-splinesteps-non-integer "-splinesteps rejects non-integers" -body {
+    set id [.c create line 0 0 10 10 20 0]
+    catch {.c itemconfigure $id -splinesteps 1.5} msg
+    list [string match "bad -splinesteps*" $msg] [.c itemcget $id -splinesteps]
+} -result {1 12}
+
+test line-splinesteps-on-rect "-splinesteps is rejected on rectangle items" -body {
+    set id [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $id -splinesteps 5} msg
+    set msg
+} -result "option \"-splinesteps\" is not valid for rectangle items"
+
+test line-splinesteps-on-arc "-splinesteps is rejected on arc items" -body {
+    set id [.c create arc 0 0 10 10]
+    catch {.c itemconfigure $id -splinesteps 5} msg
+    set msg
+} -result "option \"-splinesteps\" is not valid for arc items"
+
+test polygon-splinesteps-on-oval "-splinesteps is rejected on oval items" -body {
+    set id [.c create oval 0 0 10 10]
+    catch {.c itemconfigure $id -splinesteps 5} msg
+    set msg
+} -result "option \"-splinesteps\" is not valid for oval items"
+
+# --- -dashoffset (common offset-class option; all items with -dash) ---------------
+test dashoffset-default "-dashoffset defaults to 0 on every item" -body {
+    set ids [list [.c create rectangle 0 0 10 10] \
+                  [.c create oval 0 0 10 10] \
+                  [.c create line 0 0 10 10] \
+                  [.c create polygon 0 0 10 0 5 10] \
+                  [.c create arc 0 0 10 10]]
+    set results {}
+    foreach id $ids {lappend results [.c itemcget $id -dashoffset]}
+    set results
+} -result {0 0 0 0 0}
+
+test dashoffset-at-create "-dashoffset accepted at creation" -body {
+    set id [.c create line 0 0 10 10 -dash {8 4} -dashoffset 3]
+    list [.c itemcget $id -dash] [.c itemcget $id -dashoffset]
+} -result {{8 4} 3}
+
+test dashoffset-itemconfigure "itemconfigure rewrites -dashoffset" -body {
+    set id [.c create line 0 0 10 10 -dash {8 4}]
+    .c itemconfigure $id -dashoffset 4
+    .c itemcget $id -dashoffset
+} -result 4
+
+test dashoffset-coexists-with-dash "-dash set in the same call does not clobber -dashoffset" -body {
+    set id [.c create rectangle 0 0 10 10]
+    .c itemconfigure $id -dashoffset 2 -dash {6 3}
+    list [.c itemcget $id -dash] [.c itemcget $id -dashoffset]
+} -result {{6 3} 2}
+
+test dashoffset-negative "-dashoffset rejects negative values (Tk: bad screen distance)" -body {
+    set id [.c create line 0 0 10 10]
+    catch {.c itemconfigure $id -dashoffset -1} msg
+    list [string match "bad screen distance*" $msg] [.c itemcget $id -dashoffset]
+} -result {1 0}
+
+test dashoffset-not-a-number "-dashoffset rejects non-numeric values" -body {
+    set id [.c create line 0 0 10 10]
+    catch {.c itemconfigure $id -dashoffset abc} msg
+    list [string match "bad dashoffset*" $msg] [.c itemcget $id -dashoffset]
+} -result {1 0}
+
+test dashoffset-dash-switch-keeps-offset "changing -dash after -dashoffset keeps the offset" -body {
+    set id [.c create line 0 0 10 10 -dashoffset 5]
+    .c itemconfigure $id -dash {4 2}
+    list [.c itemcget $id -dash] [.c itemcget $id -dashoffset]
+} -result {{4 2} 5}
+
+test dashoffset-report "-dashoffset appears in the itemconfigure report for all items" -body {
+    set id [.c create rectangle 0 0 10 10]
+    dict exists [.c itemconfigure $id] -dashoffset
+} -result 1
+
+# --- arc -offset: intentionally unsupported ----------------------------------
+# Tk 的 -offset 仅用于 stipple 偏移；本项目不计划支持位图 stipple，
+# 因此 -offset 作为未知选项报错（见 docs/tk_canvas_compat_matrix.md）。
+test arc-offset-unsupported "arc -offset is rejected as an unknown option" -body {
+    catch {.c create arc 0 0 10 10 -offset 10,20} msg
+    list [string match "unknown option*" $msg]
+} -result 1
+
+destroy .c
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

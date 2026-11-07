@@ -29,10 +29,19 @@ void LineItem::Translate(double dx, double dy) {
     for (auto& p : points_) { p.x += dx; p.y += dy; }
 }
 
+std::vector<Point> LineItem::DisplayPoints() const {
+    // Tk: smoothing applies only with more than 2 points.
+    if (smooth_.mode != SmoothMode::None && points_.size() > 2) {
+        return SmoothCurvePoints(points_, smooth_);
+    }
+    return points_;
+}
+
 bool LineItem::HitTest(Point p, double tolerance) const {
-    if (points_.size() < 2) return false;
-    for (std::size_t i = 0; i + 1 < points_.size(); ++i) {
-        if (HitTest::DistancePointToSegment(p, points_[i], points_[i + 1]) <= tolerance) return true;
+    const std::vector<Point> display = DisplayPoints();
+    if (display.size() < 2) return false;
+    for (std::size_t i = 0; i + 1 < display.size(); ++i) {
+        if (HitTest::DistancePointToSegment(p, display[i], display[i + 1]) <= tolerance) return true;
     }
     return false;
 }
@@ -63,7 +72,7 @@ void LineItem::Draw(Renderer& renderer) const {
 
     Path path;
     path.closed = false;
-    path.points = points_;
+    path.points = DisplayPoints();
 
     // Lines paint through -fill (Tk semantics); -outline is accepted as an
     // alias when -fill is empty.

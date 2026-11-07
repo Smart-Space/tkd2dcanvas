@@ -14,6 +14,7 @@ struct ItemStyle {
     std::optional<Color> outline;
     double width = 1.0;          // pen width in canvas units (Tk -width)
     DashPattern dash;            // solid by default (Tk -dash)
+    double dashOffset = 0.0;     // canvas units into the -dash pattern (Tk -dashoffset)
     JoinStyle join = JoinStyle::Round;
     CapStyle cap = CapStyle::Flat;
 };
@@ -27,6 +28,7 @@ inline PenStyle ItemPenStyle(const Color& color, const ItemStyle& style,
     pen.color = color;
     pen.width = style.width;
     pen.dash = style.dash;
+    pen.dash.offset = static_cast<float>(style.dashOffset);
     pen.cap = cap;
     pen.join = join;
     pen.antialias = true;

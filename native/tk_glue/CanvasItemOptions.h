@@ -1,7 +1,7 @@
 // CanvasItemOptions.h — parsing and application of canvas *item* options
-// (-fill / -outline / -width / -dash / -tags). Widget-level options live in
-// CanvasOptions.*; item options attach to C++ items created through
-// ItemFactory. No direct D2D/Win32 dependencies.
+// (-fill / -outline / -width / -dash / -dashoffset / -tags / ...). Widget-level
+// options live in CanvasOptions.*; item options attach to C++ items created
+// through ItemFactory. No direct D2D/Win32 dependencies.
 #pragma once
 
 #include <tcl.h>
@@ -14,6 +14,7 @@
 #include "tkd2dcanvas/Color.h"
 #include "tkd2dcanvas/DashPattern.h"
 #include "tkd2dcanvas/Renderer.h"
+#include "tkd2dcanvas/SmoothCurve.h"
 
 class CanvasItem;  // global namespace (tkd2dcanvas/CanvasItem.h)
 
@@ -47,6 +48,13 @@ struct ItemConfig {
     double extent = 90.0;             // degrees
     bool hasStyle = false;
     std::string style;                // normalized: "pieslice" | "chord" | "arc"
+    // Line/polygon-only options (-smooth/-splinesteps).
+    bool hasSmooth = false;
+    SmoothMode smooth = SmoothMode::None;  // None = straight segments
+    bool hasSplineSteps = false;
+    int splineSteps = kDefaultSplineSteps;
+    bool hasDashOffset = false;
+    double dashOffset = 0.0;
 };
 
 // Parses "-option value" pairs from objv[firstArg, objc). Returns false with

@@ -5,10 +5,16 @@
 #include <utility>
 
 #include "tkd2dcanvas/CanvasItem.h"
+#include "tkd2dcanvas/SmoothCurve.h"
 
 class LineItem : public CanvasItem {
 public:
     LineItem(Id id, std::vector<Point> points);
+
+    const SmoothOptions& Smooth() const { return smooth_; }
+    void SetSmooth(const SmoothOptions& smooth) { smooth_ = smooth; }
+
+    std::vector<Point> DisplayPoints() const;
 
     BBox GetBBox() const override;
     void Translate(double dx, double dy) override;
@@ -23,4 +29,5 @@ public:
 
 private:
     std::vector<Point> points_;
+    SmoothOptions smooth_;
 };

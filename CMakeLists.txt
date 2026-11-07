@@ -31,6 +31,7 @@ set(TKG_CORE_SOURCES
     native/core/OptionValue.cpp
     native/core/Color.cpp
     native/core/DashPattern.cpp
+    native/core/SmoothCurve.cpp
     native/core/Transform2D.cpp
 )
 set(TKG_RENDER_SOURCES
@@ -67,6 +68,7 @@ add_library(tkd2dcanvas SHARED
     native/core/OptionValue.cpp
     native/core/Color.cpp
     native/core/DashPattern.cpp
+    native/core/SmoothCurve.cpp
     native/core/Transform2D.cpp
 
     native/items/RectItem.cpp
@@ -167,7 +169,7 @@ endif()  # TKG_CORE_ONLY
 
 if(TKG_BUILD_TESTS AND WIN32)
     enable_testing()
-    foreach(test_name IN ITEMS test_canvas_model test_tags test_geometry test_hit_test test_bbox)
+    foreach(test_name IN ITEMS test_canvas_model test_tags test_geometry test_hit_test test_bbox test_smooth_curve)
         add_executable(${test_name} tests/cpp/${test_name}.cpp ${TKG_CORE_SOURCES})
         target_include_directories(${test_name} PRIVATE native/include)
         add_test(NAME ${test_name} COMMAND ${test_name})

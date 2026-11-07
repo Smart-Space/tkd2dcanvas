@@ -29,8 +29,10 @@
 - [x] polygon / arc（`-fill`、`-outline`、`-width`、`-dash`；arc 另有 `-start`/`-extent`/`-style`）
 - [x] `-joinstyle`（line/polygon 的拐角风格：bevel/miter/round，Tk 默认 round；其他 item 不开放）
 - [x] `-capstyle`（line 的端点风格：butt/projecting/round，Tk 默认 butt；其他 item 不开放）
-- [ ] polygon `-smooth` / `-splinesteps`（样条平滑多边形；`-splinesteps` 控制曲线离散段数，Tk 默认 12）
-- [ ] arc `-offset`（Tk 通用的 stipple 偏移选项；无 stipple 支持，随公共偏移类选项 `-stipple`/`-dashoffset` 一起落地）
+- [x] polygon `-smooth` / `-splinesteps`（样条平滑多边形；`-splinesteps` 控制曲线离散段数，Tk 默认 12，范围钳制 1–100；算法直译 Tk 源码 `TkMakeBezierCurve`，含 `-smooth raw` 三次贝塞尔 knot 模式）
+- [x] line `-smooth` / `-splinesteps`
+- [x] `-dashoffset`
+- 备注：本项目不计划支持位图 stipple，故不实现该选项——设置 `-offset` 会被当作未知选项报错。`-outlineoffset`/line `-offset` 的 index 形式同理不提供。
 
 ## 阶段 4：基础命令（M5）✅ 完成（2026-11-07）
 

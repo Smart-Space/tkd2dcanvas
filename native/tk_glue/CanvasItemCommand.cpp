@@ -422,8 +422,9 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
     for (auto& c : name) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    static const char* kOptions[] = {"fill", "outline", "width", "dash", "tags",
-                                     "start", "extent", "style", "joinstyle", "capstyle"};
+    static const char* kOptions[] = {"fill", "outline", "width", "dash", "dashoffset", "tags",
+                                     "start", "extent", "style", "joinstyle", "capstyle",
+                                     "smooth", "splinesteps"};
     bool known = false;
     for (const char* option : kOptions) {
         if (name == option) { known = true; break; }
@@ -456,6 +457,11 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
     }
     if (name == "capstyle" && item->Type() != "line") {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-capstyle\" is not valid for %s items", item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    if ((name == "smooth" || name == "splinesteps") &&
+        item->Type() != "line" && item->Type() != "polygon") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
         return TCL_ERROR;
     }
 

@@ -29,13 +29,37 @@ void PolygonItem::Translate(double dx, double dy) {
     for (auto& p : points_) { p.x += dx; p.y += dy; }
 }
 
+std::vector<Point> PolygonItem::TkPoints() const {
+    if (points_.size() >= 2 && points_.front() != points_.back()) {
+        std::vector<Point> closed = points_;
+        closed.push_back(points_.front());
+        return closed;
+    }
+    return points_;
+}
+
+std::vector<Point> PolygonItem::DisplayPoints() const {
+    // Tk DisplayPolygon: the smoothed path is used only when the (possibly
+    // auto-closed) coordinate list has at least 4 points.
+    if (smooth_.mode != SmoothMode::None) {
+        const std::vector<Point> tk = TkPoints();
+        if (tk.size() >= 4) return SmoothCurvePoints(tk, smooth_);
+    }
+    return points_;
+}
+
 bool PolygonItem::HitTest(Point p, double tolerance) const {
-    if (points_.size() < 3) return false;
+    // Tk hit-tests against the smoothed points (smooth && numPoints > 2).
+    const std::vector<Point> tk = TkPoints();
+    const std::vector<Point> poly = (smooth_.mode != SmoothMode::None && tk.size() > 2)
+                                        ? SmoothCurvePoints(tk, smooth_)
+                                        : points_;
+    if (poly.size() < 3) return false;
     // Inside the fill, or close to an outline segment.
-    if (HitTest::PointInPolygon(p, points_)) return true;
-    for (std::size_t i = 0; i < points_.size(); ++i) {
-        const Point& a = points_[i];
-        const Point& b = points_[(i + 1) % points_.size()];
+    if (HitTest::PointInPolygon(p, poly)) return true;
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+        const Point& a = poly[i];
+        const Point& b = poly[(i + 1) % poly.size()];
         if (HitTest::DistancePointToSegment(p, a, b) <= tolerance) return true;
     }
     return false;
@@ -66,8 +90,8 @@ void PolygonItem::Draw(Renderer& renderer) const {
     if (points_.size() < 3) return;
 
     Path path;
-    path.closed = true;
-    path.points = points_;
+    path.closed = true;  // closes back to the start of the spline loop
+    path.points = DisplayPoints();
 
     if (const auto& fill = Style().fill) {
         renderer.fillPath(path, BrushStyle{*fill});

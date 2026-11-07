@@ -11,6 +11,8 @@
 #include "tkd2dcanvas/CanvasItem.h"
 
 #include "ArcItem.h"
+#include "LineItem.h"
+#include "PolygonItem.h"
 #include "CanvasTkColor.h"
 #include "CanvasWidget.h"
 
@@ -130,6 +132,45 @@ bool ParseCapStyle(Tcl_Interp* interp, Tcl_Obj* valueObj, CapStyle& out) {
     Tcl_SetObjResult(interp, Tcl_ObjPrintf(
         "bad cap style \"%s\": must be butt, projecting, or round", text.c_str()));
     return false;
+}
+
+std::string TrimLower(const std::string& raw) {
+    const std::size_t begin = raw.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) return {};
+    const std::size_t end = raw.find_last_not_of(" \t\r\n");
+    std::string out = raw.substr(begin, end - begin + 1);
+    for (auto& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return out;
+}
+
+bool MatchPrefix(const std::string& text, const char* keyword) {
+    return text.size() <= std::strlen(keyword) &&
+           std::strncmp(keyword, text.c_str(), text.size()) == 0;
+}
+
+bool ParseSmooth(Tcl_Interp* interp, Tcl_Obj* valueObj, SmoothMode& out) {
+    const char* raw = Tcl_GetString(valueObj);
+    const std::string text = TrimLower(raw ? raw : "");
+    if (text.empty()) { out = SmoothMode::None; return true; }
+    if (MatchPrefix(text, "bezier")) { out = SmoothMode::Bezier; return true; }
+    if (MatchPrefix(text, "true")) { out = SmoothMode::Bezier; return true; }
+    if (MatchPrefix(text, "raw")) { out = SmoothMode::Raw; return true; }
+    int b = 0;
+    if (Tcl_GetBoolean(interp, raw, &b) == TCL_OK) {
+        out = b ? SmoothMode::Bezier : SmoothMode::None;
+        return true;
+    }
+    Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad -smooth \"%s\": expected boolean value, \"true\", \"bezier\", or \"raw\"", raw));
+    return false;
+}
+
+std::string SmoothToString(SmoothMode mode) {
+    switch (mode) {
+        case SmoothMode::None: return "0";
+        case SmoothMode::Bezier: return "true";
+        case SmoothMode::Raw: return "raw";
+    }
+    return "0";
 }
 
 std::string CapStyleToString(CapStyle style) {
@@ -252,6 +293,32 @@ bool ParseItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
                 out.hasExtent = true;
                 out.extent = angle;
             }
+        } else if (name == "smooth") {
+            SmoothMode smooth = SmoothMode::None;
+            if (!ParseSmooth(interp, value, smooth)) return false;
+            out.hasSmooth = true;
+            out.smooth = smooth;
+        } else if (name == "splinesteps") {
+            int steps = kDefaultSplineSteps;
+            // Tk parses this as an integer and clamps to [1, 100] silently.
+            if (Tcl_GetIntFromObj(interp, value, &steps) != TCL_OK) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad -splinesteps \"%s\": expected an integer", Tcl_GetString(value)));
+                return false;
+            }
+            out.hasSplineSteps = true;
+            out.splineSteps = ClampSplineSteps(steps);
+        } else if (name == "dashoffset") {
+            double offset = 0.0;
+            if (Tcl_GetDoubleFromObj(interp, value, &offset) != TCL_OK || !std::isfinite(offset)) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad dashoffset \"%s\": expected a number", Tcl_GetString(value)));
+                return false;
+            }
+            if (offset < 0.0) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad screen distance \"%s\": expected a non-negative number", Tcl_GetString(value)));
+                return false;
+            }
+            out.hasDashOffset = true;
+            out.dashOffset = offset;
         } else if (name == "style") {
             ArcStyle style;
             const std::string raw = Tcl_GetString(value);
@@ -305,6 +372,14 @@ bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-capstyle\" is not valid for %s items", item.Type().c_str()));
         return false;
     }
+    if (config.hasSmooth && item.Type() != "line" && item.Type() != "polygon") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-smooth\" is not valid for %s items", item.Type().c_str()));
+        return false;
+    }
+    if (config.hasSplineSteps && item.Type() != "line" && item.Type() != "polygon") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-splinesteps\" is not valid for %s items", item.Type().c_str()));
+        return false;
+    }
     if (!config.hasStart && !config.hasExtent && !config.hasStyle) return true;
     if (item.Type() == "arc") return true;
 
@@ -318,12 +393,24 @@ void ApplyItemConfig(CanvasWidget& widget, int itemId, CanvasItem& item, const I
     if (config.hasOutline) item.Style().outline = config.outline;
     if (config.hasWidth) item.Style().width = config.width;
     if (config.hasDash) item.Style().dash = config.dash;
+    if (config.hasDashOffset) item.Style().dashOffset = config.dashOffset;
     if (config.hasJoinStyle) item.Style().join = config.joinStyle;
     if (config.hasCapStyle) item.Style().cap = config.capStyle;
     if (config.hasTags) {
         const std::vector<std::string> current = widget.model.TagsOf(itemId);
         for (const auto& tag : current) widget.model.RemoveTag(itemId, tag);
         for (const auto& tag : config.tags) widget.model.AddTag(itemId, tag);
+    }
+    if (item.Type() == "line" || item.Type() == "polygon") {
+        SmoothOptions smooth;
+        if (item.Type() == "line") smooth = static_cast<const LineItem&>(item).Smooth();
+        else smooth = static_cast<const PolygonItem&>(item).Smooth();
+        if (config.hasSmooth) smooth.mode = config.smooth;
+        if (config.hasSplineSteps) smooth.splineSteps = config.splineSteps;
+        if (config.hasSmooth || config.hasSplineSteps) {
+            if (item.Type() == "line") static_cast<LineItem&>(item).SetSmooth(smooth);
+            else static_cast<PolygonItem&>(item).SetSmooth(smooth);
+        }
     }
     if (item.Type() == "arc" && (config.hasStart || config.hasExtent || config.hasStyle)) {
         auto* arc = static_cast<ArcItem*>(&item);
@@ -357,6 +444,24 @@ std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
     if (name == "dash") {
         return DashToString(item.Style().dash);
     }
+    if (name == "dashoffset") {
+        return DoubleToString(item.Style().dashOffset);
+    }
+    if (name == "smooth") {
+        if (item.Type() != "line" && item.Type() != "polygon") return {};
+        const SmoothOptions& smooth = item.Type() == "line"
+            ? static_cast<const LineItem&>(item).Smooth()
+            : static_cast<const PolygonItem&>(item).Smooth();
+        return SmoothToString(smooth.mode);
+    }
+    if (name == "splinesteps") {
+        if (item.Type() != "line" && item.Type() != "polygon") return {};
+        const SmoothOptions& smooth = item.Type() == "line"
+            ? static_cast<const LineItem&>(item).Smooth()
+            : static_cast<const PolygonItem&>(item).Smooth();
+        return std::to_string(smooth.splineSteps);
+    }
+
     if (name == "tags") {
         return TagsToString(item);
     }
@@ -380,13 +485,15 @@ std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
 
 Tcl_Obj* ItemConfigReport(Tcl_Interp* interp, CanvasItem& item) {
     Tcl_Obj* dict = Tcl_NewDictObj();
-    for (const char* name : {"-fill", "-outline", "-width", "-dash", "-tags"}) {
+    for (const char* name : {"-fill", "-outline", "-width", "-dash", "-dashoffset", "-tags"}) {
         Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
         Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
     }
     if (item.Type() == "line" || item.Type() == "polygon") {
-        Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, "-joinstyle").c_str(), -1);
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("-joinstyle", -1), value);
+        for (const char* name : {"-joinstyle", "-smooth", "-splinesteps"}) {
+            Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
+            Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
+        }
     }
     if (item.Type() == "line") {
         Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, "-capstyle").c_str(), -1);

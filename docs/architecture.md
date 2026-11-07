@@ -49,10 +49,11 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
 - `D2DRenderer`：
   - 绑定内存 HDC：`ID2D1DCRenderTarget` + 32bpp top-down DIB section
     （`Win32DoubleBuffer` 按此实现）→ 渲染完成后 `BitBlt` 到目标 DC，无闪烁。
+  - 平滑曲线：`-smooth` 走 `SmoothCurve`（`native/core`，直译 Tk 的`TkMakeBezierCurve`/`TkMakeRawCurve`）预先展开成折线再交给 D2D。
+  - 虚线：`PenCache` 缓存 `ID2D1StrokeStyle`；D2D 的 dash 数组与dashOffset 均以 stroke width 为单位，`PenCache` 把 Tk 的绝对canvas 单位（-dash / -dashoffset）除以线宽后传入。
   - 文字：DirectWrite（`IDWriteTextLayout`，按行绘制，支持
     bold/italic/underline/strikethrough 与 Tk anchor 九宫格定位），
     字体走 `FontCache`（`IDWriteTextFormat` 缓存）。
-  - 虚线：`PenCache` 缓存 `ID2D1StrokeStyle`（dash 数组直接来自 `-dash`）。
   - 裁剪：`SetAxisAlignedClip` / `ResetAxisAlignedClip`，支持嵌套 push/pop
     （`pushClip` 取交集，`popClip` 恢复）。
   - 抗锯齿：`SetAntialiasMode(PER_PRIMITIVE)`，文字 ClearType。

@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | `create_rectangle` | ✅ (M4) | 首批 item：rect/oval/line |
 | `create_oval` | ✅ (M4) | |
-| `create_line` | ✅ (M4) | 支持多点折线；-fill 作画笔颜色；-joinstyle bevel/miter/round（默认 round）；-capstyle butt/projecting/round（默认 butt） |
-| `create_polygon` | ✅ (M4) | 默认黑色填充；支持多点折线；-joinstyle bevel/miter/round（默认 round） |
-| `create_arc` | ✅ (M4) | 含 -start/-extent/-style（pieslice/chord/arc） |
+| `create_line` | ✅ (M4) | 支持多点折线；-fill 作画笔颜色；-joinstyle bevel/miter/round（默认 round）；-capstyle butt/projecting/round（默认 butt）；-smooth/-splinesteps（默认 0/12，Tk 算法直译，仅点数 > 2 生效） |
+| `create_polygon` | ✅ (M4) | 默认黑色填充；支持多点折线；-joinstyle bevel/miter/round（默认 round）；-smooth/-splinesteps（默认 0/12；`-smooth raw` 三次贝塞尔 knot 模式） |
+| `create_arc` | ✅ (M4) | 含 -start/-extent/-style（pieslice/chord/arc）；-offset 明确不支持|
 | `create_text` | ⬜ (M4 基础 / M9 增强) | font/anchor/justify |
 | `create_image` | ⬜ (M9) | 依赖 Tk photo |
 | `create_bitmap` | ⬜ (M9) | XBM |
@@ -43,9 +43,27 @@
 
 均为解析层已识别（见 `native/tk_glue/CanvasOptions.cpp`），行为随 M2/M5 落地。
 
+## 选项支持情况（item 级）
+
+通用：`-fill -outline -width -dash -dashoffset -tags`。
+line/polygon：`-joinstyle`；line 另有 `-capstyle`。
+line/polygon 另有：`-smooth`（`0`/布尔/`true`/`bezier`/`raw`，支持 Tk 前缀缩写，空串 = 关闭）、`-splinesteps`（整数，钳制 1–100，默认 12）。
+arc：`-start -extent -style`。
+rectangle/oval 不开放 -smooth/-splinesteps。
+
+明确不支持（会按未知选项报错）：
+- `-offset`（arc/line/polygon 等的 stipple 偏移；Tk 该选项仅用于位图平铺，本项目不计划支持位图 stipple）
+- `-outlineoffset`
+- `-stipple` / `-outlinestipple` 及相关 `-activestipple` / `-disabledstipple`
+- line/polygon 的 `-offset` index 形式
+
 ## 行为差异（相对 tkinter.Canvas）
 
 - 命中测试容差 `-closeenough` 默认 2.0（与 Tk 一致）。
 - 坐标单位与像素 1:1（DPI 缩放完善见 Win32Dpi，0.x 暂不做整体缩放）。
 - 事件属性对象（`event.x` 等）：`tag_bind` 的 Python 回调签名由 Python 层
   适配（M6 完成后更新本文档）。
+- Tk 的 stipple 相关选项均不支持，设置时按未知选项报错。
+- `-dashoffset` 按 canvas 单位解析（Tk 的 `<length>` 单位词尾（`c`/`i`/`m`/`p`）不支持，按纯数字解析）。
+- `-smooth` 平滑只改变绘制与命中测试用的离散曲线点；`coords` 仍返回原始顶点。
+- 平滑多边形的 bbox 按原始顶点计算（Tk 行为：曲线不参与 bbox）。
