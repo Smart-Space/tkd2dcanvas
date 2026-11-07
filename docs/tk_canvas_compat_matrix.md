@@ -6,23 +6,23 @@
 
 | tkinter.Canvas API | 状态 | 备注 |
 | --- | --- | --- |
-| `create_rectangle` | ⬜ (M4) | 首批 item：rect/oval/line |
-| `create_oval` | ⬜ (M4) | |
-| `create_line` | ⬜ (M4) | 支持多点折线 |
+| `create_rectangle` | ✅ (M4) | 首批 item：rect/oval/line |
+| `create_oval` | ✅ (M4) | |
+| `create_line` | ✅ (M4) | 支持多点折线；-fill 作画笔颜色 |
 | `create_polygon` | ⬜ (M4/M9) | 之后实现 |
 | `create_arc` | ⬜ (M9) | |
 | `create_text` | ⬜ (M4 基础 / M9 增强) | font/anchor/justify |
 | `create_image` | ⬜ (M9) | 依赖 Tk photo |
 | `create_bitmap` | ⬜ (M9) | XBM |
 | `create_window` | ❌ 0.x | 见 roadmap M10 |
-| `coords` | ⬜ (M5) | |
-| `move` | ⬜ (M5) | |
-| `delete` | ⬜ (M5) | |
+| `coords` | ✅ (M4/M5) | 支持 tag/id 并集；单个 list 参数亦可 |
+| `move` | ✅ (M4/M5) | |
+| `delete` | ✅ (M4/M5) | |
 | `itemconfigure` / `itemconfig` | ⬜ (M5) | |
 | `itemcget` | ⬜ (M5) | |
 | `config` / `configure` | ⬜ (M5) | widget 级选项 |
 | `cget` | ⬜ (M5) | |
-| `bbox` | ⬜ (M5) | |
+| `bbox` | ✅ (M4/M5) | 多 item 取并集；无匹配返回空串 |
 | `find_withtag` / `find_all` / `find_closest` / `find_overlapping` / `find_enclosed` | ⬜ (M6) | |
 | `addtag_withtag` / `addtag_all` / `addtag_overlapping` / `dtag` | ⬜ (M6) | |
 | `gettags` | ⬜ (M6) | |

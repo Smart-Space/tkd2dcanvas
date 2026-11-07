@@ -16,20 +16,21 @@
 - [x] 事件桩（Configure/Expose/Map/Destroy 经 Tk 事件掩码接入）
 - [x] Direct2D 背景绘制（`WindowHook` 子类化 widget 自己的 HWND）
 
-## 阶段 2：Direct2D 背景（M3）✅ 基本完成（2026-11-07）
+## 阶段 2：Direct2D 背景（M3）✅ 完成（2026-11-07）
 
 - [x] `-background lightgray` 显示灰色背景（`-background` 走 Tk 选项表 + `winfo rgb`）
 - [x] 双缓冲（32bpp DIB section + `BitBlt`）、`WM_PAINT` 正确、resize 不拉伸
-- [ ] 脏矩形裁剪（只重绘变化区域，随 M4 的 item 层一起做）
+- [x] 脏矩形裁剪（只重绘变化区域；随 M4 的 item 层一起落地：WM_PAINT 只重绘/BitBlt 受损矩形）
 
-## 阶段 3：基本 item（M4）
+## 阶段 3：基本 item（M4）✅ 完成（2026-11-07）
 
-- [ ] rectangle / oval / line（含 `-fill`、`-outline`、`-width`、`-dash`）
-- [ ] item id、`create` 返回、重绘脏区
+- [x] rectangle / oval / line（含 `-fill`、`-outline`、`-width`、`-dash`）
+- [x] item id、`create` 返回、重绘脏区
 
-## 阶段 4：基础命令（M5）
+## 阶段 4：基础命令（M5）🚧 部分完成
 
 - [ ] `coords` / `move` / `delete` / `itemconfigure` / `itemcget` / `bbox`
+  - `coords` / `move` / `delete` / `bbox` 已随 M4 先落地（tag/id 并集解析、原子回滚）
 - [ ] widget 级 `configure` / `cget`
 
 ## 阶段 5：tag / find / bind（M6）

@@ -9,6 +9,7 @@
 
 #include "D2DContext.h"
 #include "CanvasCmd.h"
+#include "ItemRegistrations.h"
 
 namespace {
 constexpr const char* kPackageVersion = "0.1";
@@ -30,6 +31,9 @@ Tkd2dcanvas_Init(Tcl_Interp* interp)
         Tcl_SetObjResult(interp, Tcl_NewStringObj("direct2d failed to initialize", -1));
         return TCL_ERROR;
     }
+
+    // Make "rectangle" / "oval" / "line" creatable.
+    tkd2dcanvas::RegisterBuiltinItems();
 
     if (tkd2dcanvas::RegisterCommands(interp) != TCL_OK) {
         return TCL_ERROR;

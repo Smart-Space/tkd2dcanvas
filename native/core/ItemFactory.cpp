@@ -16,12 +16,12 @@ bool ItemFactory::Unregister(std::string_view type) {
     return creators_.erase(std::string(type)) > 0;
 }
 
-CanvasItemPtr ItemFactory::Create(std::string_view type, CanvasItem::Id id) const {
+CanvasItemPtr ItemFactory::Create(std::string_view type, CanvasItem::Id id, const std::vector<double>& coords) const {
     auto it = creators_.find(std::string(type));
     if (it == creators_.end()) {
         throw std::invalid_argument("unknown canvas item type: " + std::string(type));
     }
-    return it->second(id);
+    return it->second(id, coords);
 }
 
 bool ItemFactory::IsRegistered(std::string_view type) const {

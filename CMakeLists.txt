@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.26)
+cmake_minimum_required(VERSION 3.26)
 project(tkd2dcanvas LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -78,6 +78,7 @@ add_library(tkd2dcanvas SHARED
     native/items/ImageItem.cpp
     native/items/BitmapItem.cpp
     native/items/WindowItem.cpp
+    native/items/ItemRegistrations.cpp
 
     native/render/D2DRenderer.cpp
     native/render/D2DContext.cpp
@@ -99,6 +100,7 @@ add_library(tkd2dcanvas SHARED
     native/tk_glue/CanvasEventBridge.cpp
     native/tk_glue/CanvasScrollBridge.cpp
     native/tk_glue/CanvasItemCommand.cpp
+    native/tk_glue/CanvasItemOptions.cpp
     native/tk_glue/CanvasTkColor.cpp
     native/tk_glue/CanvasTkFont.cpp
     native/tk_glue/CanvasTkImage.cpp

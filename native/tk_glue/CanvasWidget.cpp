@@ -8,6 +8,7 @@
 #include "CanvasOptions.h"
 #include "CanvasItemCommand.h"
 #include "CanvasEventBridge.h"
+#include "D2DRenderer.h"
 #include "WindowHook.h"
 
 namespace tkd2dcanvas {
@@ -207,6 +208,10 @@ void CanvasWidget::Invalidate() {
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
+void CanvasWidget::Invalidate(const BBox& box) {
+    surface.Invalidate(box);
+}
+
 void CanvasWidget::Paint(HDC dc, const RECT& damaged) {
     if (!dc || !mapped) return;
     if (pixelWidth <= 0 || pixelHeight <= 0) return;
@@ -216,10 +221,14 @@ void CanvasWidget::Paint(HDC dc, const RECT& damaged) {
     RECT overlap{};
     if (!IntersectRect(&overlap, &bounds, &damaged)) return;
 
-    surface.Paint(dc, nullptr,
+    // The clip lives in Win32Surface::Paint (background fill + item draws are
+    // clipped in D2D), and the same rect gates the BitBlt to the target DC,
+    // so a small change repaints only that region.
+    surface.Paint(dc, &overlap,
                   [this](D2DRenderer& renderer) {
-                      // TODO(M4): draw the items of `model` here.
-                      (void)renderer;
+                      for (CanvasItem* item : model.ItemsInZOrder()) {
+                          if (item) item->Draw(renderer);
+                      }
                   });
 }
 

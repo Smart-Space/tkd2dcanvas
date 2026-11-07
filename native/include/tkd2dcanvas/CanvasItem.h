@@ -8,6 +8,7 @@
 #include "tkd2dcanvas/BBox.h"
 #include "tkd2dcanvas/Geometry.h"
 #include "tkd2dcanvas/Renderer.h"
+#include "tkd2dcanvas/ItemStyle.h"
 
 class CanvasItem {
 public:
@@ -30,6 +31,20 @@ public:
     // --- Rendering ---------------------------------------------------------
     virtual void Draw(Renderer& renderer) const = 0;
 
+    // Visual style shared by all items (-fill/-outline/-width/-dash).
+    ItemStyle& Style() { return style_; }
+    const ItemStyle& Style() const { return style_; }
+
+    // --- Coordinates ---------------------------------------------------------
+    // Flat Tk-style coordinate list ("x1 y1 x2 y2 ..."). Items that do not
+    // support coordinates (window items, ...) keep the defaults.
+    virtual std::vector<double> GetCoordinates() const { return {}; }
+    // Sets coordinates from a flat list. False = nothing changed.
+    virtual bool SetCoordinates(const std::vector<double>& coords) {
+        (void)coords;
+        return false;
+    }
+
     // --- Tags --------------------------------------------------------------
     const std::vector<std::string>& Tags() const { return tags_; }
     bool HasTag(const std::string& tag) const;
@@ -41,6 +56,7 @@ private:
     Id id_;
     std::string type_;
     std::vector<std::string> tags_;
+    ItemStyle style_;
 };
 
 using CanvasItemPtr = std::unique_ptr<CanvasItem>;

@@ -2,6 +2,8 @@
 
 #include "D2DRenderer.h"
 
+#include "tkd2dcanvas/Geometry.h"
+
 Win32Surface::Win32Surface() = default;
 Win32Surface::~Win32Surface() = default;
 
@@ -49,10 +51,30 @@ void Win32Surface::Paint(HDC hdc, const RECT* invalidRect, const Painter& painte
 
     HDC mem = backBuffer_.Handle();
 
-    // Single-pass Direct2D rendering into the back buffer.
+    // Single-pass Direct2D rendering into the back buffer. When a damage
+    // rect is given, both the background fill and every draw are clipped to
+    // it, and the back buffer outside the rect is left untouched (it is
+    // equally absent from the Present() BitBlt below).
     if (renderer_ && renderer_->AttachToHdc(mem, width_, height_)) {
-        renderer_->clear(background_);
-        painter(*renderer_);
+        if (invalidRect) {
+            const BBox clip{static_cast<double>(invalidRect->left),
+                            static_cast<double>(invalidRect->top),
+                            static_cast<double>(invalidRect->right),
+                            static_cast<double>(invalidRect->bottom)};
+            renderer_->pushClip(clip);
+            Path background;
+            background.closed = true;
+            background.points = {{clip.left, clip.top},
+                                 {clip.right, clip.top},
+                                 {clip.right, clip.bottom},
+                                 {clip.left, clip.bottom}};
+            renderer_->fillPath(background, BrushStyle{background_});
+            painter(*renderer_);
+            renderer_->popClip();
+        } else {
+            renderer_->clear(background_);
+            painter(*renderer_);
+        }
         renderer_->Detach();
     }
 

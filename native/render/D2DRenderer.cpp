@@ -46,8 +46,12 @@ bool D2DRenderer::AttachToHdc(void* hdc, int width, int height) {
     }
 
     if (!impl_->rt) {
-        FLOAT dpiX = 96.0f, dpiY = 96.0f;
-        D2DContext::Factory()->GetDesktopDpi(&dpiX, &dpiY);
+        // Render in pixel space: 1 D2D unit = 1 back-buffer pixel, matching
+        // Tk's logical-pixel coordinates (and the RECT passed to BindDC).
+        // Using GetDesktopDpi() here would scale everything by the display's
+        // scale factor (e.g. 2x) and clip content to the top-left quarter of
+        // the buffer. Per-monitor DPI handling is deferred to Win32Dpi.
+        const FLOAT dpiX = 96.0f, dpiY = 96.0f;
 
         const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
             D2D1_RENDER_TARGET_TYPE_DEFAULT,   // hardware, transparent WARP fallback

@@ -10,8 +10,6 @@ _PKG_DIR = Path(__file__).resolve().parent
 _TCL_PKG_DIR = _PKG_DIR / "tcl"          # site-packages/tkd2dcanvas/tcl
 _REPO_TCL_DIR = _PKG_DIR.parent.parent / "tcl"  # dev checkout fallback
 
-_loaded: set[int] = set()
-
 
 def _candidate_tcl_dirs() -> list[Path]:
     dirs = [_TCL_PKG_DIR]
@@ -32,10 +30,13 @@ def load_into(master: tkinter.Misc) -> None:
     """Add the bundled Tcl package to the interpreter and require it.
 
     Idempotent per interpreter; safe to call before every widget creation.
+    The no-op path asks the interpreter itself (``package present``) instead
+    of caching Python object ids, which can be reused after an interpreter
+    is destroyed.
     """
     tk = master.tk
-    key = id(tk)
-    if key in _loaded:
+
+    if is_loaded(master):
         return
 
     tcl_dir = tcl_package_dir().as_posix()
@@ -52,8 +53,10 @@ def load_into(master: tkinter.Misc) -> None:
         ) from exc
 
     _ = version  # e.g. "0.1"
-    _loaded.add(key)
 
 
 def is_loaded(master: tkinter.Misc) -> bool:
-    return id(master.tk) in _loaded
+    try:
+        return bool(master.tk.call("package", "present", "tkd2dcanvas"))
+    except tkinter.TclError:
+        return False

@@ -18,6 +18,9 @@ public:
     const std::vector<Point>& Points() const { return points_; }
     void SetPoints(std::vector<Point> points) { points_ = std::move(points); }
 
+    std::vector<double> GetCoordinates() const override;
+    bool SetCoordinates(const std::vector<double>& coords) override;
+
 private:
     std::vector<Point> points_;
 };

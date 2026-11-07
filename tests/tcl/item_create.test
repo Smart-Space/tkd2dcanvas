@@ -1,4 +1,5 @@
-# item_create.test — M4: create items.
+# item_create.test — M4: create items (rectangle / oval / line) and parse
+# -fill/-outline/-width/-dash.
 package require tcltest
 namespace import ::tcltest::*
 
@@ -7,12 +8,108 @@ if {[catch {package require tkd2dcanvas} err]} {
     exit 0
 }
 
-# Once M4 lands, replace this placeholder with real cases:
-#   - .c create rectangle ... returns an integer id
-#   - .c create oval / line
-test item_create-placeholder "placeholder until M4" -body {
-    expr {1}
+tkd2dcanvas .c -width 320 -height 240
+
+test create-rectangle-id "create rectangle returns an integer id" -body {
+    set id [.c create rectangle 10 10 100 80]
+    expr {$id > 0}
 } -result 1
+
+test create-oval-id "create oval returns an integer id" -body {
+    set id [.c create oval 0 0 50 50]
+    expr {$id > 0}
+} -result 1
+
+test create-line-id "create line returns an integer id" -body {
+    set id [.c create line 0 0 100 100]
+    expr {$id > 0}
+} -result 1
+
+test create-line-polyline "create line accepts multiple points" -body {
+    set id [.c create line 0 0 50 20 90 0 120 30]
+    .c coords $id
+} -result "0 0 50 20 90 0 120 30"
+
+test create-ids-increment "successive create calls return increasing ids" -body {
+    set a [.c create rectangle 0 0 10 10]
+    set b [.c create rectangle 20 20 30 30]
+    expr {$b > $a}
+} -result 1
+
+test create-rect-options "-fill/-outline/-width/-dash are accepted" -body {
+    set id [.c create rectangle 10 10 100 80 -fill tomato -outline navy -width 3 -dash {4 2}]
+    .c bbox $id
+} -result "10 10 100 80"
+
+test create-line-options "line accepts -fill/-width/-dash" -body {
+    set id [.c create line 0 0 200 200 -fill black -width 2.5 -dash dash]
+    .c coords $id
+} -result "0 0 200 200"
+
+test create-dash-named "named dash patterns are accepted" -body {
+    set a [.c create line 0 0 10 10 -dash dot]
+    set b [.c create line 0 0 10 10 -dash .]
+    set c [.c create line 0 0 10 10 -dash -]
+    set d [.c create line 0 0 10 10 -dash none]
+    list [expr {$a > 0}] [expr {$b > 0}] [expr {$c > 0}] [expr {$d > 0}]
+} -result "1 1 1 1"
+
+test create-empty-fill-outline "empty -fill/-outline disable painting but parse" -body {
+    set id [.c create rectangle 10 10 20 20 -fill {} -outline {}]
+    expr {$id > 0}
+} -result 1
+
+test create-unknown-type "unknown item type errors" -body {
+    catch {.c create bogusshape 0 0 10 10} msg
+    set msg
+} -result "unknown canvas item type: bogusshape"
+
+test create-rect-wrong-coords "rectangle requires exactly 4 coordinates" -body {
+    catch {.c create rectangle 0 0 10} msg
+    set msg
+} -match glob -result "wrong # coordinates:*"
+
+test create-line-odd-coords "line requires an even number of coordinates >= 4" -body {
+    catch {.c create line 0 0 10} msg
+    set msg
+} -match glob -result "wrong # coordinates:*"
+
+test create-bad-width "negative -width errors" -body {
+    catch {.c create rectangle 0 0 10 10 -width -1} msg
+    set msg
+} -match glob -result "*width*"
+
+test create-nonnumeric-width "-width must be a number" -body {
+    catch {.c create rectangle 0 0 10 10 -width thick} msg
+    set msg
+} -match glob -result "*width*thick*"
+
+test create-unknown-option "unknown options error" -body {
+    catch {.c create rectangle 0 0 10 10 -bogus red} msg
+    set msg
+} -result "unknown option \"-bogus\""
+
+test create-bad-color "invalid colors error" -body {
+    catch {.c create rectangle 0 0 10 10 -fill no-such-color-xyz} msg
+    expr {[string length $msg] > 0}
+} -result 1
+
+test create-missing-option-value "trailing option without value errors" -body {
+    catch {.c create rectangle 0 0 10 10 -fill} msg
+    set msg
+} -result "missing value for option \"-fill\""
+
+test create-negative-coords "negative coordinates parse as numbers" -body {
+    set id [.c create rectangle -100 -100 -10 -10]
+    .c bbox $id
+} -result "-100 -100 -10 -10"
+
+test create-tags-option "-tags attaches tags at creation time" -body {
+    set id [.c create rectangle 0 0 10 10 -tags mygroup]
+    .c bbox mygroup
+} -result "0 0 10 10"
+
+destroy .c
 
 if {![info exists ::tkg_all_in_progress]} {
     cleanupTests

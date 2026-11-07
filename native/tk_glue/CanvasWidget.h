@@ -11,6 +11,7 @@
 
 #include <string>
 
+#include "tkd2dcanvas/CanvasItem.h"
 #include "tkd2dcanvas/CanvasModel.h"
 #include "tkd2dcanvas/Color.h"
 
@@ -71,6 +72,8 @@ struct CanvasWidget {
 
     // Marks the widget area as damaged (repaint on the next WM_PAINT).
     void Invalidate();
+    // Same, limited to a canvas-unit rectangle
+    void Invalidate(const BBox& box);
 
     // Draws the widget with Direct2D into `dc` (a DC of the top-level window).
     // `damaged` is the area that has to be repainted (in top-level client
