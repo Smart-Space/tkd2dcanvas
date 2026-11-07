@@ -53,10 +53,15 @@
 - [x] `raise` / `lower`（z-order，成组移动）
 - [x] 多重绑定与单独解绑
 
-## 阶段 6：滚动（M7）
+## 阶段 6：滚动（M7）✅ 完成（2026-11-07）
 
-- [ ] `xview` / `yview`（moveto/scroll/units/pages）
-- [ ] `-xscrollcommand` / `-yscrollcommand` / `-scrollregion` / `-*scrollincrement`
+- [x] `xview` / `yview`（moveto/scroll/units/pages；语义直译 Tk `tkCanvas.c`）
+- [x] `-xscrollcommand` / `-yscrollcommand` / `-scrollregion` / `-*scrollincrement`
+  - `-scrollregion` 支持 `c`/`i`/`m`/`p` 单位
+  - scroll command 按 Tk 的 UPDATE_SCROLLBARS 语义延迟到 idle 求值（`<prefix> <first> <last>`，TCL_EVAL_GLOBAL），错误走 bgerror
+  - `-confine`/`-scrollregion`/`-*scrollincrement`/resize 都会对当前 origin 重新 round + confine（与 Tk 的 ConfigureNotify 一致）
+  - 顺带实现 `scan mark` / `scan dragto ?gain?`（Tk canvas 滚动命令的其余部分）
+  - 顺带修复了隐患：创建期 option 校验失败的 widget（如 `-scrollregion` 解析失败）没有走完整析构路径，pending idle 回调会指向已释放对象，统一改为 `AbortCreate`
 
 ## 阶段 7：Python 包装（M8）
 

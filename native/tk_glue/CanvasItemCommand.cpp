@@ -18,6 +18,7 @@
 #include "CanvasItemOptions.h"
 #include "CanvasBindCommand.h"
 #include "CanvasTagCommand.h"
+#include "CanvasScrollBridge.h"
 #include "CanvasWidget.h"
 
 namespace tkd2dcanvas {
@@ -564,15 +565,14 @@ int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
     if (cmd == "raise" || cmd == "lower" || cmd == "tagraise" || cmd == "taglower") {
         return CanvasTagSubcommand(widget, interp, objc, objv);
     }
-    if (cmd == "xview" || cmd == "yview") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: xview/yview is not implemented yet (milestone M7)", -1));
-        return TCL_ERROR;
+    if (cmd == "xview") {
+        return HandleScrollCommand(widget, /*horizontal=*/true, objc, objv);
     }
-    if (cmd == "scan" || cmd == "scanmark" || cmd == "scandragto") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(
-            "tkd2dcanvas: scan is not implemented yet (milestone M7)", -1));
-        return TCL_ERROR;
+    if (cmd == "yview") {
+        return HandleScrollCommand(widget, /*horizontal=*/false, objc, objv);
+    }
+    if (cmd == "scan") {
+        return HandleScanCommand(widget, objc, objv);
     }
 
     Tcl_SetObjResult(interp, Tcl_ObjPrintf("unknown widget subcommand \"%s\"", cmd.c_str()));

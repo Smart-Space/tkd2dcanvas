@@ -16,7 +16,7 @@ struct CanvasWidget;
 enum CanvasOptionMask {
     kCanvasOptGeometry = 1 << 0,   // -width/-height/-borderwidth
     kCanvasOptColour = 1 << 1,     // -background
-    kCanvasOptScroll = 1 << 2,     // -scrollregion/-*scrollcommand
+    kCanvasOptScroll = 1 << 2,     // -scrollregion/-*scrollcommand/-confine
     kCanvasOptOther = 1 << 3,      // everything else
 };
 
@@ -24,7 +24,7 @@ enum CanvasOptionMask {
 Tk_OptionTable CreateCanvasOptionTable(Tcl_Interp* interp);
 
 // Applies the option values that changed (mask) to the widget.
-void ApplyCanvasOptions(CanvasWidget& widget, int mask);
+bool ApplyCanvasOptions(CanvasWidget& widget, int mask);
 
 // Builds the dictionary returned by `configure` without arguments.
 int CanvasReportOptions(Tcl_Interp* interp, CanvasWidget& widget);

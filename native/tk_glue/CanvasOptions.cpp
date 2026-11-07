@@ -1,8 +1,6 @@
 #include "CanvasOptions.h"
 
-#include <cstdlib>
 #include <string>
-#include <vector>
 
 #include "CanvasTkColor.h"
 #include "CanvasWidget.h"
@@ -70,23 +68,40 @@ const Tk_OptionSpec kCanvasOptionSpecs[] = {
     {TK_OPTION_END, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0}
 };
 
-bool ParseRectList(const char* text, double values[4]) {
-    if (!text || !*text) return false;
+int ParseScrollRegion(Tcl_Interp* interp, Tk_Window tkwin,
+                      const char* text, double values[4]) {
+    if (!interp || !text || !*text) return TCL_ERROR;
 
-    std::vector<double> numbers;
-    const char* p = text;
-    while (*p) {
-        while (*p == ' ' || *p == '\t') ++p;
-        if (*p == '\0') break;
-        char* end = nullptr;
-        const double v = std::strtod(p, &end);
-        if (end == p) return false;
-        numbers.push_back(v);
-        p = end;
+    int argc = 0;
+    const char** argv = nullptr;
+    if (Tcl_SplitList(interp, text, &argc, &argv) != TCL_OK) {
+        Tcl_Free(reinterpret_cast<char*>(argv ? argv : nullptr));
+        return TCL_ERROR;
     }
-    if (numbers.size() != 4) return false;
-    for (int i = 0; i < 4; ++i) values[i] = numbers[i];
-    return true;
+    if (argc != 4) {
+        Tcl_Free(reinterpret_cast<char*>(argv));
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad scrollRegion \"%s\"", text));
+        Tcl_SetErrorCode(interp, "TK", "CANVAS", "SCROLL_REGION", nullptr);
+        return TCL_ERROR;
+    }
+
+    int rc = TCL_OK;
+    for (int i = 0; i < 4; ++i) {
+        int pixels = 0;
+        // Tk_GetPixels sets the interp error on bad input
+        // ("bad screen distance ..."); Tk replaces it with "bad scrollRegion".
+        if (Tk_GetPixels(interp, tkwin, argv[i], &pixels) != TCL_OK) {
+            rc = TCL_ERROR;
+            break;
+        }
+        values[i] = static_cast<double>(pixels);
+    }
+    Tcl_Free(reinterpret_cast<char*>(argv));
+    if (rc != TCL_OK) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad scrollRegion \"%s\"", text));
+        Tcl_SetErrorCode(interp, "TK", "CANVAS", "SCROLL_REGION", nullptr);
+    }
+    return rc;
 }
 
 }  // namespace
@@ -95,7 +110,10 @@ Tk_OptionTable CreateCanvasOptionTable(Tcl_Interp* interp) {
     return Tk_CreateOptionTable(interp, kCanvasOptionSpecs);
 }
 
-void ApplyCanvasOptions(CanvasWidget& widget, int mask) {    if (!widget.tkwin) return;
+bool ApplyCanvasOptions(CanvasWidget& widget, int mask) {
+    if (!widget.tkwin) return true;
+    bool ok = true;
+    std::string scrollRegionError;
 
     if (mask & kCanvasOptColour) {
         const char* spec = widget.backgroundObj ? Tcl_GetString(widget.backgroundObj) : "white";
@@ -119,12 +137,19 @@ void ApplyCanvasOptions(CanvasWidget& widget, int mask) {    if (!widget.tkwin) 
         double rect[4];
         const char* region = widget.scrollRegionObj
             ? Tcl_GetString(widget.scrollRegionObj) : "";
-        if (ParseRectList(region, rect)) {
+        if (!*region) {
+            // Empty string means "no scroll region" (Tk's TK_CONFIG_NULL_OK).
+            widget.model.View().SetScrollRegion(BBox::Empty());
+        } else if (ParseScrollRegion(widget.interp, widget.tkwin, region, rect) == TCL_OK) {
             widget.model.View().SetScrollRegion(
                 BBox{rect[0], rect[1], rect[2], rect[3]});
         } else {
             widget.model.View().SetScrollRegion(BBox::Empty());
+            scrollRegionError = std::string("bad scrollRegion \"") + region + "\"";
+            ok = false;
         }
+        const CanvasView& view = widget.model.View();
+        widget.model.View().SetOrigin(view.XOffset(), view.YOffset());
     }
 
     if (mask & kCanvasOptOther) {
@@ -136,6 +161,11 @@ void ApplyCanvasOptions(CanvasWidget& widget, int mask) {    if (!widget.tkwin) 
 
     widget.UpdateGeometry();
     widget.Invalidate();
+    if (!ok) {
+        Tcl_SetObjResult(widget.interp, Tcl_NewStringObj(scrollRegionError.c_str(), -1));
+        Tcl_SetErrorCode(widget.interp, "TK", "CANVAS", "SCROLL_REGION", nullptr);
+    }
+    return ok;
 }
 
 int CanvasReportOptions(Tcl_Interp* interp, CanvasWidget& widget) {

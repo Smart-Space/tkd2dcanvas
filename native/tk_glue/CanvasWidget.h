@@ -71,6 +71,11 @@ struct CanvasWidget {
 
     int eventDepth = 0;
     bool destroyPending = false;
+    bool scrollbarsPending = false;
+    int scanMarkX = 0;
+    int scanMarkY = 0;
+    double scanOriginX = 0.0;
+    double scanOriginY = 0.0;
 
     // Creates the widget (window + options + command + event handlers).
     // `objv[firstOption..]` are the option words of the creating command.
@@ -83,7 +88,8 @@ struct CanvasWidget {
     static void CommandDeleted(ClientData clientData);
 
     // Re-reads the options and applies them (geometry, colours, scroll area).
-    void ApplyOptions(int mask);
+    // Returns false when an option value was rejected.
+    bool ApplyOptions(int mask);
 
     // Refreshes the cached geometry from Tk and resizes the drawing surface.
     void UpdateGeometry();
@@ -121,6 +127,8 @@ struct CanvasWidget {
     // Marks the beginning of an event dispatch. The widget must not be freed
     // while an event is being dispatched.
     void BeginEvent();
+    // Tears a half-built widget down like a normal destroy.
+    static void AbortCreate(Tk_Window tkwin, CanvasWidget& raw);
     // Marks the end of an event dispatch; frees the widget when it was
     // destroyed in the meantime. Nothing may touch the widget afterwards.
     void EndEvent();

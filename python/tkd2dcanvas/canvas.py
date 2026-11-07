@@ -110,7 +110,7 @@ class Canvas:
 
         options = dict(cnf or {})
         options.update(kw)
-        args = ["tkd2dcanvas", self._new_path(master), *flatten_options(options)]
+        args = ["tkd2dcanvas", self._new_path(master), *self._flatten_options(options)]
         try:
             self._path = str(master.tk.call(*args))
         except tkinter.TclError as exc:
@@ -144,7 +144,7 @@ class Canvas:
     # --- item creation -------------------------------------------------------
     def create(self, itemtype: str, *coords: Any, **kw: Any) -> int:
         args = [serialize_value(c) for c in coords]
-        args += flatten_options(kw)
+        args += self._flatten_options(kw)
         return int(self._call("create", itemtype, *args))
 
     def create_rectangle(self, *args: Any, **kw: Any) -> int:
@@ -203,7 +203,7 @@ class Canvas:
             kw = {**cnf, **kw}
         if not kw:
             return self._call("itemconfigure", serialize_value(item))
-        return self._call("itemconfigure", serialize_value(item), *flatten_options(kw))
+        return self._call("itemconfigure", serialize_value(item), *self._flatten_options(kw))
 
     itemconfig = itemconfigure
 
@@ -215,7 +215,7 @@ class Canvas:
             kw = {**cnf, **kw}
         if not kw:
             return self._call("configure")
-        return self._call("configure", *flatten_options(kw))
+        return self._call("configure", *self._flatten_options(kw))
 
     config = configure
 
@@ -293,6 +293,14 @@ class Canvas:
             return tuple(float(v) for v in self._call("yview").split())
         return self._call("yview", *[serialize_value(a) for a in args])
 
+    def scan_mark(self, x: float, y: float) -> None:
+        """Records ``x`` and ``y`` and the current view (like tkinter)."""
+        self._call("scan", "mark", int(x), int(y))
+
+    def scan_dragto(self, x: float, y: float, gain: int = 10) -> None:
+        """Moves the view by ``gain`` times the pointer distance since the mark."""
+        self._call("scan", "dragto", int(x), int(y), int(gain))
+
     # --- geometry proxies ---------------------------------------------------------
     def pack(self, cnf: Optional[dict] = None, **kw: Any):
         return self._geometry_cmd("pack", cnf, kw)
@@ -306,7 +314,7 @@ class Canvas:
     def _geometry_cmd(self, cmd: str, cnf: Optional[dict], kw: dict):
         if cnf:
             kw = {**cnf, **kw}
-        return self.master.tk.call(cmd, self._path, *flatten_options(kw))
+        return self.master.tk.call(cmd, self._path, *self._flatten_options(kw))
 
     # --- events ------------------------------------------------------------------
     def tag_bind(self, tag: Any, sequence: Optional[str] = None,
@@ -400,6 +408,30 @@ class Canvas:
         self.master.tk.createcommand(name, wrapper)
         self._tcl_commands.append(name)
         return name
+
+    def _register_command(self, func: Callable[..., Any]) -> str:
+        """Registers a Python callable as a Tcl command receiving the raw
+        string arguments, for use as a script prefix (e.g. a scroll command).
+        tkinter does the same for callables in option values.
+        """
+        name = f"_tkd2dcanvas_callback_{next(_command_counter)}"
+
+        def wrapper(*args: str) -> str:
+            result = func(*args)
+            return "" if result is None else str(result)
+
+        self.master.tk.createcommand(name, wrapper)
+        self._tcl_commands.append(name)
+        return name
+
+    def _flatten_options(self, options: dict) -> list[str]:
+        """Flattens like flatten_options, registering Python callables as Tcl
+        commands (tkinter's callable-in-option convention)."""
+        resolved = dict(options)
+        for key, value in resolved.items():
+            if callable(value):
+                resolved[key] = self._register_command(value)
+        return flatten_options(resolved)
 
     def _delete_command(self, name: str) -> None:
         """Deletes a registered Tcl command (the callback is gone for good)."""

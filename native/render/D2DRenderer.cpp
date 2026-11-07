@@ -23,6 +23,7 @@ struct D2DRendererImpl {
     int height = 0;
     bool frameOpen = false;
     int clipDepth = 0;  // number of active axis-aligned clips (nested = intersected)
+    std::vector<D2D1_MATRIX_3X2_F> transformStack;  // world transforms saved by pushTranslate
 };
 
 D2DRenderer::D2DRenderer() : impl_(std::make_unique<D2DRendererImpl>()) {}
@@ -110,6 +111,7 @@ void D2DRenderer::Detach() {
         impl_->rt->PopAxisAlignedClip();
         --impl_->clipDepth;
     }
+    impl_->transformStack.clear();
 }
 
 void D2DRenderer::EnsureBrush() {
@@ -120,6 +122,19 @@ void D2DRenderer::EnsureBrush() {
 namespace {
 D2D1::ColorF ToD2DColor(const Color& c) {
     return D2D1::ColorF(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, c.a / 255.0f);
+}
+
+// Row-vector affine composition C = A * B (v' = (v*A)*B), where the
+// matrices use D2D1::Matrix3x2F's layout (_11 _12 _21 _22 _31 _32).
+D2D1::Matrix3x2F Compose3x2(const D2D1_MATRIX_3X2_F& A,
+                             const D2D1_MATRIX_3X2_F& B) {
+    return D2D1::Matrix3x2F(
+        A._11 * B._11 + A._12 * B._21,
+        A._11 * B._12 + A._12 * B._22,
+        A._21 * B._11 + A._22 * B._21,
+        A._21 * B._12 + A._22 * B._22,
+        A._31 * B._11 + A._32 * B._21 + B._31,
+        A._31 * B._12 + A._32 * B._22 + B._32);
 }
 }  // namespace
 
@@ -277,10 +292,12 @@ void D2DRenderer::drawImage(const ImageRef& image, const Transform2D& transform)
 
     D2D1_MATRIX_3X2_F previous{};
     impl_->rt->GetTransform(&previous);
-    impl_->rt->SetTransform(D2D1::Matrix3x2F(
-        static_cast<FLOAT>(a), static_cast<FLOAT>(b),
-        static_cast<FLOAT>(c), static_cast<FLOAT>(d),
-        static_cast<FLOAT>(e), static_cast<FLOAT>(f)));
+    const D2D1::Matrix3x2F composed = Compose3x2(
+        D2D1::Matrix3x2F(static_cast<FLOAT>(a), static_cast<FLOAT>(b),
+                         static_cast<FLOAT>(c), static_cast<FLOAT>(d),
+                         static_cast<FLOAT>(e), static_cast<FLOAT>(f)),
+        previous);
+    impl_->rt->SetTransform(composed);
     impl_->rt->DrawBitmap(bitmap,
                           D2D1::RectF(0.0f, 0.0f,
                                       static_cast<FLOAT>(image.width),
@@ -309,4 +326,28 @@ void D2DRenderer::popClip() {
 
     impl_->rt->PopAxisAlignedClip();
     --impl_->clipDepth;
+}
+
+void D2DRenderer::pushTranslate(double dx, double dy) {
+    if (!impl_->rt || !impl_->frameOpen) return;
+
+    D2D1_MATRIX_3X2_F previous{};
+    impl_->rt->GetTransform(&previous);
+    impl_->transformStack.push_back(previous);
+    // The new translation applies in *inner* coordinates, so it multiplies
+    // on the left of the current transform: v' = (v*T)*previous.
+    const D2D1::Matrix3x2F composed = Compose3x2(
+        D2D1::Matrix3x2F::Translation(static_cast<FLOAT>(dx),
+                                      static_cast<FLOAT>(dy)),
+        previous);
+    impl_->rt->SetTransform(composed);
+}
+
+void D2DRenderer::popTranslate() {
+    if (!impl_->rt || !impl_->frameOpen) return;
+    if (impl_->transformStack.empty()) return;
+
+    D2D1_MATRIX_3X2_F previous = impl_->transformStack.back();
+    impl_->transformStack.pop_back();
+    impl_->rt->SetTransform(previous);
 }

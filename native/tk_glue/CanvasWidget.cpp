@@ -9,6 +9,7 @@
 #include "CanvasOptions.h"
 #include "CanvasItemCommand.h"
 #include "CanvasEventBridge.h"
+#include "CanvasScrollBridge.h"
 #include "D2DRenderer.h"
 #include "WindowHook.h"
 
@@ -73,7 +74,7 @@ CanvasWidget* CanvasWidget::Create(Tcl_Interp* interp, const char* pathName,
 
     widget->optionTable = CreateCanvasOptionTable(interp);
     if (!widget->optionTable) {
-        Tk_DestroyWindow(tkwin);
+        CanvasWidget::AbortCreate(tkwin, *widget.release());
         return nullptr;
     }
 
@@ -85,8 +86,7 @@ CanvasWidget* CanvasWidget::Create(Tcl_Interp* interp, const char* pathName,
 
     if (Tk_InitOptions(interp, reinterpret_cast<char*>(widget.get()),
                         widget->optionTable, tkwin) != TCL_OK) {
-        Tk_FreeConfigOptions(reinterpret_cast<char*>(widget.get()), widget->optionTable, tkwin);
-        Tk_DestroyWindow(tkwin);
+        CanvasWidget::AbortCreate(tkwin, *widget.release());
         return nullptr;
     }
 
@@ -95,14 +95,16 @@ CanvasWidget* CanvasWidget::Create(Tcl_Interp* interp, const char* pathName,
         if (Tk_SetOptions(interp, reinterpret_cast<char*>(widget.get()),
                            widget->optionTable, objc - firstOption, objv + firstOption,
                            tkwin, nullptr, &mask) != TCL_OK) {
-            Tk_FreeConfigOptions(reinterpret_cast<char*>(widget.get()),
-                                  widget->optionTable, tkwin);
-            Tk_DestroyWindow(tkwin);
+            CanvasWidget::AbortCreate(tkwin, *widget.release());
             return nullptr;
         }
     }
 
-    widget->ApplyOptions(mask | kCanvasOptColour | kCanvasOptGeometry | kCanvasOptScroll);
+    if (!widget->ApplyOptions(mask | kCanvasOptColour | kCanvasOptGeometry | kCanvasOptScroll)) {
+        // A bad option value (e.g. -scrollregion) failed configuration
+        CanvasWidget::AbortCreate(tkwin, *widget.release());
+        return nullptr;
+    }
 
     widget->command = Tcl_CreateObjCommand(interp, pathName, &CanvasWidget::WidgetCmd,
                                             widget.get(), &CanvasWidget::CommandDeleted);
@@ -127,8 +129,18 @@ void CanvasWidget::RequestDestroy() {
     FinalizeDestroy();
 }
 
+void CanvasWidget::AbortCreate(Tk_Window tkwin, CanvasWidget& raw) {
+    if (tkwin) {
+        Tk_DestroyWindow(tkwin);
+    }
+    raw.FinalizeDestroy();
+}
+
 void CanvasWidget::FinalizeDestroy() {
     destroyPending = false;
+
+    // A destroyed widget must not be touched by a pending idle callback.
+    CancelScrollbarUpdate(*this);
 
     if (hwnd) {
         DetachCanvasFromWindow(hwnd, this);
@@ -188,7 +200,9 @@ int CanvasWidget::WidgetCmd(ClientData clientData, Tcl_Interp* interp,
                            objc - 2, objv + 2, widget->tkwin, nullptr, &mask) != TCL_OK) {
             return TCL_ERROR;
         }
-        widget->ApplyOptions(mask);
+        if (!widget->ApplyOptions(mask)) {
+            return TCL_ERROR;
+        }
         Tcl_SetObjResult(interp, Tcl_NewStringObj(Tk_PathName(widget->tkwin), -1));
         return TCL_OK;
     }
@@ -210,8 +224,8 @@ int CanvasWidget::WidgetCmd(ClientData clientData, Tcl_Interp* interp,
     return CanvasItemSubcommand(*widget, interp, objc, objv);
 }
 
-void CanvasWidget::ApplyOptions(int mask) {
-    ApplyCanvasOptions(*this, mask);
+bool CanvasWidget::ApplyOptions(int mask) {
+    return ApplyCanvasOptions(*this, mask);
 }
 
 void CanvasWidget::UpdateGeometry() {
@@ -236,6 +250,9 @@ void CanvasWidget::UpdateGeometry() {
     pixelWidth = width;
     pixelHeight = height;
     surface.Resize(width, height);
+
+    model.View().SetViewSize(width, height);
+    RequestScrollbarUpdate(*this);
 }
 
 void CanvasWidget::Invalidate() {
@@ -244,13 +261,19 @@ void CanvasWidget::Invalidate() {
 }
 
 void CanvasWidget::Invalidate(const BBox& box) {
-    surface.Invalidate(box);
+    if (!box.IsValid()) return;
+    const CanvasView& view = model.View();
+    const BBox local{box.left - view.XOffset(), box.top - view.YOffset(),
+                     box.right - view.XOffset(), box.bottom - view.YOffset()};
+    surface.Invalidate(local);
 }
 
 void CanvasWidget::PickCurrentItem(int x, int y) {
     // The hit test lives in the C++ core: the topmost item whose shape is
-    // within the -closeenough tolerance wins.
-    const int id = model.FindItemAt(static_cast<double>(x), static_cast<double>(y), closeEnough);
+    // within the -closeenough tolerance wins. Widget-local coordinates are
+    // mapped to canvas coordinates with the view offset.
+    const CanvasView& view = model.View();
+    const int id = model.FindItemAt(x + view.XOffset(), y + view.YOffset(), closeEnough);
     if (id == currentItemId) return;
 
     // The "current" tag follows the item under the pointer (Tk semantics).
@@ -325,9 +348,14 @@ void CanvasWidget::Paint(HDC dc, const RECT& damaged) {
     // so a small change repaints only that region.
     surface.Paint(dc, &overlap,
                   [this](D2DRenderer& renderer) {
+                      const CanvasView& view = model.View();
+                      const double dx = view.XOffset();
+                      const double dy = view.YOffset();
+                      renderer.pushTranslate(-dx, -dy);
                       for (CanvasItem* item : model.ItemsInZOrder()) {
                           if (item) item->Draw(renderer);
                       }
+                      renderer.popTranslate();
                   });
 }
 

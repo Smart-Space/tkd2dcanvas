@@ -71,4 +71,7 @@ public:
 
     virtual void pushClip(const BBox& box) = 0;
     virtual void popClip() = 0;
+
+    virtual void pushTranslate(double dx, double dy) = 0;
+    virtual void popTranslate() = 0;
 };

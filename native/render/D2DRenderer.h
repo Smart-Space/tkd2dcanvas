@@ -31,6 +31,8 @@ public:
 
     void pushClip(const BBox& box) override;
     void popClip() override;
+    void pushTranslate(double dx, double dy) override;
+    void popTranslate() override;
 
     // Binds (creates if needed) a DC render target on the given HDC and opens
     // a drawing frame. Call via Detach() to end the frame. `width`/`height`

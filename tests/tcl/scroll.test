@@ -1,4 +1,5 @@
-# scroll.test — M7: xview/yview and scrollregion
+# scroll.test — M7: xview/yview, -scrollregion, -scrollincrement,
+#               -xscrollcommand/-yscrollcommand, scan mark/dragto
 package require tcltest
 namespace import ::tcltest::*
 
@@ -7,9 +8,252 @@ if {[catch {package require tkd2dcanvas} err]} {
     exit 0
 }
 
-test scroll-placeholder "placeholder until M7" -body {
-    expr {1}
+tkd2dcanvas .s -width 200 -height 100
+pack .s
+# Force the window to be mapped at the requested size so the view size is
+# known (winfo width is 1 for an unmapped window).
+update
+
+# A strict little recorder for the scroll commands.
+proc ::record {var first last} {
+    lappend ::scroll_log [list $var $first $last]
+}
+set ::scroll_log {}
+
+test scroll-default-empty "xview/yview with no scrollregion report the full span" -body {
+    list [.s xview] [.s yview]
+} -result {{0.0 1.0} {0.0 1.0}}
+
+test scroll-configure-region "configuring -scrollregion reports a partial span" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    list [.s xview] [.s yview]
+} -result {{0.0 0.2} {0.0 0.2}}
+
+test scroll-region-good-shapes "-scrollregion accepts units and lists" -body {
+    .s configure -scrollregion "0 0 10c 10i"
+    set ok1 [expr {[catch {.s xview}] == 0}]
+    .s configure -scrollregion {0 0 1000 500}
+    list $ok1 [.s xview]
+} -result {1 {0.0 0.2}}
+
+test scroll-moveto "xview moveto moves the origin and fractions follow" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.5
+    .s xview
+} -result {0.5 0.7}
+
+test scroll-moveto-full "xview moveto 1.0 is pulled back by confine" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 1.0
+    .s xview
+} -result {0.8 1.0}
+
+test scroll-moveto-negative "xview moveto with a negative fraction is pulled back by confine" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto -0.5
+    .s xview
+} -result {0.0 0.2}
+
+test scroll-moveto-out-of-range "xview moveto above 1 is pulled back by confine" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 2.0
+    .s xview
+} -result {0.8 1.0}
+
+test scroll-confine-off "-confine 0 allows moving past the region" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s configure -confine 0
+    .s xview moveto 2.0
+    set out [.s xview]
+    .s configure -confine 1
+    set back [.s xview]
+    list $out $back
+} -result {{2.0 2.0} {0.8 1.0}}
+
+test scroll-region-nonzero-origin "region with a non-zero origin is reachable" -body {
+    .s configure -scrollregion {100 50 2100 1050}
+    .s xview moveto 0.0
+    .s yview moveto 0.0
+    list [.s xview] [.s yview]
+} -result {{0.0 0.1} {0.0 0.1}}
+
+test scroll-region-smaller-than-window "a region smaller than the window cannot be scrolled" -body {
+    .s configure -scrollregion {0 0 150 80}
+    .s xview moveto 0.5
+    .s yview moveto 0.5
+    list [.s xview] [.s yview]
+} -result {{0.0 1.0} {0.0 1.0}}
+
+test scroll-wheel-units "scroll n units without -xscrollincrement moves 1/10 of the visible span" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.0
+    .s xview scroll 2 units
+    .s xview
+} -result {0.04 0.24}
+
+test scroll-pages "scroll n pages moves 9/10 of the visible span" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.0
+    .s xview scroll 1 pages
+    .s xview
+} -result {0.18 0.38}
+
+test scroll-units-negative "scroll with a negative count moves backwards" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.5
+    .s xview scroll -2 units
+    .s xview
+} -result {0.46 0.66}
+
+test scroll-increment "-xscrollincrement rounds the origin to a multiple" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s configure -xscrollincrement 100
+    .s xview moveto 0.13
+    set rounded [.s xview]
+    .s xview scroll 2 units
+    set units [.s xview]
+    list $rounded $units
+} -result {{0.1 0.3} {0.3 0.5}}
+
+test scroll-increment-clamped "-xscrollincrement keeps the count under confine" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s configure -xscrollincrement 100
+    .s xview moveto 0.9
+    .s xview scroll 1 units
+    .s xview
+} -result {0.8 1.0}
+
+test scroll-increment-y "-yscrollincrement works for yview" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s configure -yscrollincrement 50
+    .s yview moveto 0.13
+    .s yview
+} -result {0.1 0.3}
+
+test scroll-increment-zero "-xscrollincrement 0 restores unconstrained scrolling" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s configure -xscrollincrement 100
+    .s configure -xscrollincrement 0
+    .s xview moveto 0.13
+    .s xview
+} -result {0.13 0.33}
+
+test scroll-reset-region "an empty -scrollregion disables scrolling" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s configure -scrollregion {}
+    list [.s xview] [.s yview]
+} -result {{0.0 1.0} {0.0 1.0}}
+
+test scroll-bad-region-configure "bad -scrollregion reports an error and drops the region" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    set rc [catch {.s configure -scrollregion {1 2 3}} msg]
+    list $rc $msg [.s xview]
+} -result {1 {bad scrollRegion "1 2 3"} {0.0 1.0}}
+
+test scroll-bad-region-units "bad units in -scrollregion report an error" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    set rc [catch {.s configure -scrollregion {1 2 three 4}} msg]
+    list $rc $msg [.s xview]
+} -result {1 {bad scrollRegion "1 2 three 4"} {0.0 1.0}}
+
+test scroll-bad-region-create "bad -scrollregion at widget creation fails creation" -body {
+    set rc [catch {tkd2dcanvas .bad -scrollregion {1 2 3}} msg]
+    list $rc $msg [winfo exists .bad]
+} -result {1 {bad scrollRegion "1 2 3"} 0}
+
+test scroll-xscrollcommand "-xscrollcommand is called with the new fractions" -body {
+    set ::scroll_log {}
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.0
+    .s configure -xscrollcommand {} -yscrollcommand {}
+    update
+    set ::scroll_log {}
+    .s configure -xscrollcommand {record x}
+    update
+    set ::scroll_log
+} -result [list [list x 0.0 0.2]]
+
+test scroll-yscrollcommand "-yscrollcommand is called with the new fractions" -body {
+    set ::scroll_log {}
+    .s configure -scrollregion {0 0 1000 500}
+    .s yview moveto 0.0
+    .s configure -xscrollcommand {} -yscrollcommand {}
+    update
+    set ::scroll_log {}
+    .s configure -yscrollcommand {record y}
+    update
+    set ::scroll_log
+} -result [list [list y 0.0 0.2]]
+
+test scroll-scrollcommand-moveto "the scroll command fires on view changes too" -body {
+    set ::scroll_log {}
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.0
+    .s configure -xscrollcommand {} -yscrollcommand {}
+    update
+    set ::scroll_log {}
+    .s configure -xscrollcommand {record x}
+    update
+    set ::scroll_log {}
+    .s xview moveto 0.5
+    update
+    set ::scroll_log
+} -result [list [list x 0.5 0.7]]
+
+test scroll-scrollcommand-error "errors in the scroll command go to bgerror" -body {
+    proc ::bgerror {msg} { lappend ::bgerr $msg }
+    set ::bgerr [list]
+    .s configure -xscrollcommand {error boom}
+    .s xview moveto 0.4
+    update
+    update
+    set rc [llength [info commands ::bgerror]]
+    rename ::bgerror {}
+    expr {$rc > 0 && [llength $::bgerr] > 0}
 } -result 1
+
+test scroll-scan-mark-dragto "scan mark/dragto drags the view by gain x distance" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.5
+    .s scan mark 100 50
+    .s scan dragto 90 50
+    set after1 [.s xview]
+    .s scan mark 100 50
+    .s scan dragto 110 50
+    set after2 [.s xview]
+    list $after1 $after2
+} -result {{0.6 0.8} {0.5 0.7}}
+
+test scroll-scan-gain "scan dragto accepts a custom gain" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.5
+    .s scan mark 100 50
+    .s scan dragto 90 50 1
+    .s xview
+} -result {0.51 0.71}
+
+test scroll-scan-bad-gain "scan dragto rejects a non-integer gain" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.5
+    .s scan mark 100 50
+    set rc [catch {.s scan dragto 90 50 many} msg]
+    list $rc $msg
+} -result {1 {expected integer but got "many"}}
+
+test scroll-query-after-units "xview query reflects the current view" -body {
+    .s configure -scrollregion {0 0 1000 500}
+    .s xview moveto 0.0
+    .s xview scroll 1 pages
+    .s xview
+} -result {0.18 0.38}
+
+# Return the window to a known state for other test files that reuse it.
+.s configure -scrollregion {}
+.s configure -xscrollincrement 0
+.s configure -yscrollincrement 0
+.s configure -xscrollcommand {}
+.s configure -yscrollcommand {}
+destroy .s
 
 if {![info exists ::tkg_all_in_progress]} {
     cleanupTests

@@ -29,8 +29,8 @@
 | `gettags` | ✅ (M6) | 按添加顺序返回 |
 | `tag_bind` / `bind` | ✅ (M6) | C++ core 解析绑定：命中测试在 core，事件模式匹配走 Tk binding table；事件类型与 Tk 的 canvas 一致（key/button/motion/enter/leave/virtual）；支持 `add=True` 多重绑定，返回回调 id，可单独 `unbind` |
 | `tag_raise` / `tag_lower` | ✅ (M6) | `raise`/`lower` 成组移动，保持相对顺序 |
-| `xview` / `yview` | ⬜ (M7) | scrollregion + scrollcommand |
-| `scan_mark` / `scan_dragto` | ⬜ (M7) | |
+| `xview` / `yview` | ✅ (M7) | `xview` / `xview moveto f` / `xview scroll n units\|pages`；fractions 语义与 Tk 的 `ScrollFractions` 一致（无 region 时恒为 `0.0 1.0`）；moveto 映射到**整个 region 宽度**再由 confine 拉回（Tk 行为）；`-xscrollincrement`>0 时 origin 四舍五入到 increment 的倍数 |
+| `scan_mark` / `scan_dragto` | ✅ (M7) | `scan mark x y` 记录位置与当时的 origin；`scan dragto x y ?gain?` 按 gain（默认 10）倍距离反向拖动 origin（Tk 语义，origin 取整 + confine） |
 | `postscript` | ❌ | 打印路径不计划 |
 | `create_a_window` 系别名 | ❌ | 不存在 |
 | pack/grid/place 管理 | ✅ 托管 | 走 Tk geometry manager（示例已用） |
@@ -41,8 +41,6 @@
 `-width -height -background/-bg -cursor -borderwidth/-bd -highlightthickness
 -xscrollincrement -yscrollincrement -closeenough -confine -takefocus
 -scrollregion -xscrollcommand -yscrollcommand`
-
-均为解析层已识别（见 `native/tk_glue/CanvasOptions.cpp`），行为随 M2/M5 落地。
 
 ## 选项支持情况（item 级）
 
