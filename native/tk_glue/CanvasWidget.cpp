@@ -347,13 +347,21 @@ void CanvasWidget::Paint(HDC dc, const RECT& damaged) {
     // clipped in D2D), and the same rect gates the BitBlt to the target DC,
     // so a small change repaints only that region.
     surface.Paint(dc, &overlap,
-                  [this](D2DRenderer& renderer) {
+                  [this, &overlap](D2DRenderer& renderer) {
                       const CanvasView& view = model.View();
                       const double dx = view.XOffset();
                       const double dy = view.YOffset();
                       renderer.pushTranslate(-dx, -dy);
+                      constexpr double kCullSlack = 4.0;
+                      const BBox visible{overlap.left + dx - kCullSlack,
+                                         overlap.top + dy - kCullSlack,
+                                         overlap.right + dx + kCullSlack,
+                                         overlap.bottom + dy + kCullSlack};
                       for (CanvasItem* item : model.ItemsInZOrder()) {
-                          if (item) item->Draw(renderer);
+                          if (!item) continue;
+                          const BBox box = item->GetBBox();
+                          if (box.IsValid() && !box.Intersects(visible)) continue;
+                          item->Draw(renderer);
                       }
                       renderer.popTranslate();
                   });
