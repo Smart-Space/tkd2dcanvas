@@ -1,10 +1,30 @@
 #include "PolygonItem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <utility>
 
 #include "tkd2dcanvas/HitTest.h"
+#include "tkd2dcanvas/TkAreaOverlap.h"
+
+namespace {
+
+// The stored coordinate list Tk would hold: auto-closed like Tk
+// (PolyCoords appends a copy of the first point when the list is open).
+std::vector<Point> TestPoints(const std::vector<Point>& points,
+                              const SmoothOptions& smooth) {
+    std::vector<Point> tk = points;
+    if (tk.size() >= 2 && tk.front() != tk.back()) {
+        tk.push_back(tk.front());
+    }
+    if (smooth.mode != SmoothMode::None && tk.size() >= 4) {
+        return SmoothCurvePoints(tk, smooth);
+    }
+    return tk;
+}
+
+}  // namespace
 
 PolygonItem::PolygonItem(Id id, std::vector<Point> points)
     : CanvasItem(id, "polygon"), points_(std::move(points)) {
@@ -13,17 +33,67 @@ PolygonItem::PolygonItem(Id id, std::vector<Point> points)
 }
 
 BBox PolygonItem::GetBBox() const {
-    if (points_.empty()) return BBox::Empty();
+    // Tk: ComputePolygonBbox — an integer box over the (auto-closed) vertex
+    // hull, padded by (int)((width + 1.5) / 2) when the polygon has an
+    // outline, with miter apex points merged in for JoinMiter, plus a 1px
+    // fudge. Smoothing never expands the box.
+    const std::vector<Point> tk = TkPoints();  // auto-closes like Tk
+    if (tk.empty()) return BBox::Empty();
 
-    double minX = points_[0].x, maxX = points_[0].x;
-    double minY = points_[0].y, maxY = points_[0].y;
-    for (const auto& p : points_) {
-        minX = std::min(minX, p.x);
-        maxX = std::max(maxX, p.x);
-        minY = std::min(minY, p.y);
-        maxY = std::max(maxY, p.y);
+    std::size_t n = tk.size();
+    int x1 = static_cast<int>(tk[0].x), x2 = x1;
+    int y1 = static_cast<int>(tk[0].y), y2 = y1;
+    // Tk includes every stored point except the (duplicated) last one.
+    for (std::size_t i = 1; i < n - 1; ++i) {
+        const int ix = static_cast<int>(tk[i].x + 0.5);
+        if (ix < x1) x1 = ix;
+        if (ix > x2) x2 = ix;
+        const int iy = static_cast<int>(tk[i].y + 0.5);
+        if (iy < y1) y1 = iy;
+        if (iy > y2) y2 = iy;
     }
-    return BBox{minX, minY, maxX, maxY};
+
+    if (TkHasOutlineGC(Style())) {
+        const double width = Style().width;
+        const int pad = static_cast<int>((width + 1.5) / 2.0);
+        x1 -= pad; x2 += pad; y1 -= pad; y2 += pad;
+
+        if (Style().join == JoinStyle::Miter) {
+            auto include = [&](const double miter[2], const double miter2[2]) {
+                const int i1 = static_cast<int>(miter[0] + 0.5);
+                if (i1 < x1) x1 = i1;
+                if (i1 > x2) x2 = i1;
+                const int i2 = static_cast<int>(miter[1] + 0.5);
+                if (i2 < y1) y1 = i2;
+                if (i2 > y2) y2 = i2;
+                const int j1 = static_cast<int>(miter2[0] + 0.5);
+                if (j1 < x1) x1 = j1;
+                if (j1 > x2) x2 = j1;
+                const int j2 = static_cast<int>(miter2[1] + 0.5);
+                if (j2 < y1) y1 = j2;
+                if (j2 > y2) y2 = j2;
+            };
+            // The closing seam joint (only when the stored list has more than 3 points).
+            if (n > 3) {
+                double miter1[2], miter2[2];
+                if (TkGetMiterPoints(tk[n - 2], tk[0], tk[1], width,
+                                     miter1, miter2)) {
+                    include(miter1, miter2);
+                }
+            }
+            // Interior joints of the closed loop.
+            for (std::size_t k = 0; k + 2 < n; ++k) {
+                double miter1[2], miter2[2];
+                if (TkGetMiterPoints(tk[k], tk[k + 1], tk[k + 2], width,
+                                     miter1, miter2)) {
+                    include(miter1, miter2);
+                }
+            }
+        }
+    }
+
+    x1 -= 1; x2 += 1; y1 -= 1; y2 += 1;
+    return BBox{double(x1), double(y1), double(x2), double(y2)};
 }
 
 void PolygonItem::Translate(double dx, double dy) {
@@ -78,6 +148,24 @@ std::vector<double> PolygonItem::GetCoordinates() const {
         coords.push_back(p.y);
     }
     return coords;
+}
+
+int PolygonItem::AreaOverlap(const double rect[4]) const {
+    const std::vector<Point> store = TestPoints(points_, smooth_);
+    if (store.size() < 2) return -1;
+
+    const double width = Style().width;
+    if (store.size() < 3) {
+        const double radius = width / 2.0;
+        const double oval[4] = {store[0].x - radius, store[0].y - radius,
+                                store[0].x + radius, store[0].y + radius};
+        return TkOvalToArea(oval, rect);
+    }
+
+    const int inside = TkPolygonToArea(store.data(), static_cast<int>(store.size()), rect);
+    if (inside == 0) return 0;
+    if (!TkHasOutlineGC(Style())) return inside;
+    return TkPolygonOutlineToArea(store.data(), store.size(), width, Style().join, inside, rect);
 }
 
 bool PolygonItem::SetCoordinates(const std::vector<double>& coords) {

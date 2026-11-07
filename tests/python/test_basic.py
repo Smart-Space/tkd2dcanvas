@@ -51,4 +51,4 @@ def test_bbox(canvas):
     item = _skip_unless_implemented(lambda: canvas.create_rectangle(10, 10, 100, 80))
     box = _skip_unless_implemented(lambda: canvas.bbox(item))
     assert box is not None
-    assert box == pytest.approx((10, 10, 100, 80))
+    assert box == pytest.approx((9, 9, 101, 81))

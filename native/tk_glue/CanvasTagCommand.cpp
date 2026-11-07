@@ -172,19 +172,22 @@ bool RunSearch(CanvasWidget& widget, Tcl_Interp* interp,
             if (rect[1] > rect[3]) std::swap(rect[1], rect[3]);
 
             const bool enclosedOnly = (kind == SearchKind::kEnclosed);
+            const int rx1 = static_cast<int>(rect[0] - 1.0);
+            const int ry1 = static_cast<int>(rect[1] - 1.0);
+            const int rx2 = static_cast<int>(rect[2] + 1.0);
+            const int ry2 = static_cast<int>(rect[3] + 1.0);
             for (int id : widget.model.AllItemIds()) {
                 const BBox box = widget.model.ItemBBox(id);
                 if (!box.IsValid()) continue;
-                const bool inside = box.left >= rect[0] && box.top >= rect[1] &&
-                                    box.right <= rect[2] && box.bottom <= rect[3];
-                if (inside) {
-                    out.push_back(id);
+                if (box.left >= rx2 || box.right <= rx1 || box.top >= ry2 || box.bottom <= ry1) {
                     continue;
                 }
-                if (enclosedOnly) continue;
-                const bool disjoint = box.left > rect[2] || box.right < rect[0] ||
-                                     box.top > rect[3] || box.bottom < rect[1];
-                if (!disjoint) out.push_back(id);
+                CanvasItem* item = widget.model.FindItem(id);
+                if (!item) continue;
+                const int overlap = item->AreaOverlap(rect);
+                if (enclosedOnly ? (overlap == 1) : (overlap >= 0)) {
+                    out.push_back(id);
+                }
             }
             return true;
         }

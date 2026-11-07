@@ -99,7 +99,7 @@ int CanvasBindSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
         long value = 0;
         if (Tcl_GetLongFromObj(nullptr, objv[2], &value) != TCL_OK || value < 0 ||
             value > 0x7fffffffL || !widget.model.Exists(static_cast<int>(value))) {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("invalid item identifier \"%s\"", spec));
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("item \"%s\" doesn't exist", spec));
             return TCL_ERROR;
         }
         object = ItemBindingObject(widget, static_cast<int>(value));

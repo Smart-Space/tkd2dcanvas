@@ -28,6 +28,7 @@ set(TKG_CORE_SOURCES
     native/core/CanvasView.cpp
     native/core/Geometry.cpp
     native/core/HitTest.cpp
+    native/core/TkAreaOverlap.cpp
     native/core/OptionValue.cpp
     native/core/Color.cpp
     native/core/DashPattern.cpp
@@ -65,6 +66,7 @@ add_library(tkd2dcanvas SHARED
     native/core/CanvasView.cpp
     native/core/Geometry.cpp
     native/core/HitTest.cpp
+    native/core/TkAreaOverlap.cpp
     native/core/OptionValue.cpp
     native/core/Color.cpp
     native/core/DashPattern.cpp

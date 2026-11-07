@@ -37,6 +37,7 @@ t = canvas.create_text(40, 40, text="hello", anchor="nw", font=("Helvetica", 24,
 x1, y1, x2, y2 = canvas.coords(r)
 canvas.coords(r, 30, 30, 210, 130)
 canvas.move(r, 10, 5)
+canvas.moveto(r, 100, 100)
 ```
 
 ## 选项

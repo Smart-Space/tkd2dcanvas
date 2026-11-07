@@ -39,7 +39,7 @@ test create-ids-increment "successive create calls return increasing ids" -body 
 test create-rect-options "-fill/-outline/-width/-dash are accepted" -body {
     set id [.c create rectangle 10 10 100 80 -fill tomato -outline navy -width 3 -dash {4 2}]
     .c bbox $id
-} -result "10 10 100 80"
+} -result "8 8 102 82"
 
 test create-line-options "line accepts -fill/-width/-dash" -body {
     set id [.c create line 0 0 200 200 -fill black -width 2.5 -dash dash]
@@ -102,12 +102,12 @@ test create-missing-option-value "trailing option without value errors" -body {
 test create-negative-coords "negative coordinates parse as numbers" -body {
     set id [.c create rectangle -100 -100 -10 -10]
     .c bbox $id
-} -result "-100 -100 -10 -10"
+} -result "-101 -101 -9 -9"
 
 test create-tags-option "-tags attaches tags at creation time" -body {
     set id [.c create rectangle 0 0 10 10 -tags mygroup]
     .c bbox mygroup
-} -result "0 0 10 10"
+} -result "-1 -1 11 11"
 
 destroy .c
 

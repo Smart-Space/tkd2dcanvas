@@ -148,10 +148,10 @@ test polygon-smooth-closes-implicitly "smoothed polygon closes even without a du
     .c coords $id
 } -result "10 10 110 10 60 110"
 
-test polygon-smooth-bbox "smoothed polygon bbox stays the vertex hull (Tk does not expand for curves)" -body {
+test polygon-smooth-bbox "smoothed polygon bbox keeps the vertex hull (Tk does not expand for curves)" -body {
     set id [.c create polygon 20 10 100 40 40 90 -smooth true]
     .c bbox $id
-} -result "20 10 100 90"
+} -result "19 9 101 91"
 
 test polygon-smooth-on-rect "-smooth is rejected on rectangle items" -body {
     set id [.c create rectangle 0 0 10 10]

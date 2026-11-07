@@ -185,6 +185,15 @@ class Canvas:
     def move(self, items: Any, dx: float, dy: float) -> None:
         self._call("move", serialize_value(items), serialize_value(dx), serialize_value(dy))
 
+    def moveto(self, items: Any, x: Any, y: Any) -> None:
+        """Moves the items so that the upper-left corner of the bbox of the
+        first matching item is located at ``(x, y)``.
+
+        ``x`` or ``y`` may be the empty string, in which case the
+        corresponding coordinate is left unchanged (Tk's ``moveto``).
+        """
+        self._call("moveto", serialize_value(items), serialize_value(x), serialize_value(y))
+
     def delete(self, *items: Any) -> None:
         self._call("delete", *[serialize_value(i) for i in items])
 

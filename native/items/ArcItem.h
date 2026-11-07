@@ -16,17 +16,20 @@ class ArcItem : public CanvasItem {
 public:
     // Tk: -start degrees (counter-clockwise from 3 o'clock), -extent degrees.
     // The arc is inscribed in the x1 y1 x2 y2 bounding box. Start defaults to
-    // 0 and extent to 90 (Tk defaults); style defaults to pieslice.
+    // 0 and extent to 90 (Tk defaults); style defaults to pieslice. Tk
+    // normalizes -start/-extent at configuration time (start into [0,360),
+    // extent into (-360,360]).
     ArcItem(Id id, double x1, double y1, double x2, double y2, double startDeg = 0.0, double extentDeg = 90.0);
 
-    BBox GetBBox() const override;  // the full ellipse bounds (Tk semantics)
+    BBox GetBBox() const override;
     void Translate(double dx, double dy) override;
     double DistanceTo(Point p) const override;
+    int AreaOverlap(const double rect[4]) const override;
     void Draw(Renderer& renderer) const override;
 
     double Start() const { return start_; }
     double Extent() const { return extent_; }
-    void SetAngles(double startDeg, double extentDeg) { start_ = startDeg; extent_ = extentDeg; }
+    void SetAngles(double startDeg, double extentDeg);
 
     ArcStyle GetStyle() const { return style_; }
     void SetStyle(ArcStyle style) { style_ = style; }
@@ -46,4 +49,6 @@ private:
     ArcStyle style_ = ArcStyle::PieSlice;
 
     std::vector<Point> SampleArc() const;
+
+    double ArcDistanceTo(Point p) const;
 };

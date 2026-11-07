@@ -33,6 +33,16 @@ public:
     // oval, line, polygon, arc) refine this.
     virtual double DistanceTo(Point p) const;
 
+    // Classification of the item against the probe rectangle ({x1,y1,x2,y2}
+    // with x1 <= x2, y1 <= y2), mirroring Tk's item areaProcs used by
+    // `find overlapping` / `find enclosed`:
+    //   -1 the item is entirely outside the rectangle,
+    //    0 the item overlaps the rectangle,
+    //    1 the item is entirely inside the rectangle.
+    // The default implementation classifies by bounding box; items with a
+    // precise answer (line) refine this.
+    virtual int AreaOverlap(const double rect[4]) const;
+
     // True when `p` is within `tolerance` of the item. The outline width
     // widens the hit area, exactly like Tk (the stroke covers the path plus
     // half its width on each side).

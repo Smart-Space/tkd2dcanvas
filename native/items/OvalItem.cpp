@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "tkd2dcanvas/HitTest.h"
+#include "tkd2dcanvas/TkAreaOverlap.h"
 
 OvalItem::OvalItem(Id id, double x1, double y1, double x2, double y2)
     : CanvasItem(id, "oval"), x1_(x1), y1_(y1), x2_(x2), y2_(y2) {
@@ -12,8 +13,36 @@ OvalItem::OvalItem(Id id, double x1, double y1, double x2, double y2)
 }
 
 BBox OvalItem::GetBBox() const {
-    return BBox{std::min(x1_, x2_), std::min(y1_, y2_),
-                std::max(x1_, x2_), std::max(y1_, y2_)};
+    return TkRectOvalBBox(x1_, y1_, x2_, y2_, TkHasOutlineGC(Style()), Style().width);
+}
+
+int OvalItem::AreaOverlap(const double rect[4]) const {
+    // Tk's oval areaProc (OvalToArea in tkRectOval.c).
+    const double x1 = std::min(x1_, x2_), x2 = std::max(x1_, x2_);
+    const double y1 = std::min(y1_, y2_), y2 = std::max(y1_, y2_);
+    const double halfWidth = TkHasOutlineGC(Style()) ? Style().width / 2.0 : 0.0;
+
+    const double oval[4] = {x1 - halfWidth, y1 - halfWidth,
+                            x2 + halfWidth, y2 + halfWidth};
+    const int result = TkOvalToArea(oval, rect);
+
+    // An unfilled oval is hollow: a probe whose four corners all sit inside
+    // the inner ellipse is a miss.
+    if (result == 0 && TkHasOutlineGC(Style()) && !Style().fill.has_value()) {
+        const double centerX = (x1 + x2) / 2.0;
+        const double centerY = (y1 + y2) / 2.0;
+        const double innerW = (x2 - x1) / 2.0 - halfWidth;
+        const double innerH = (y2 - y1) / 2.0 - halfWidth;
+        const double nx1 = (rect[0] - centerX) / innerW;
+        const double ny1 = (rect[1] - centerY) / innerH;
+        const double nx2 = (rect[2] - centerX) / innerW;
+        const double ny2 = (rect[3] - centerY) / innerH;
+        if ((nx1 * nx1 + ny1 * ny1) < 1.0 && (nx1 * nx1 + ny2 * ny2) < 1.0
+            && (nx2 * nx2 + ny1 * ny1) < 1.0 && (nx2 * nx2 + ny2 * ny2) < 1.0) {
+            return -1;
+        }
+    }
+    return result;
 }
 
 void OvalItem::Translate(double dx, double dy) {
@@ -21,7 +50,9 @@ void OvalItem::Translate(double dx, double dy) {
 }
 
 double OvalItem::DistanceTo(Point p) const {
-    const BBox box = GetBBox();
+    const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
+    const double top = std::min(y1_, y2_), bottom = std::max(y1_, y2_);
+    const BBox box{left, top, right, bottom};
     const double rx = box.Width() * 0.5;
     const double ry = box.Height() * 0.5;
     if (rx <= 0.0 || ry <= 0.0) {

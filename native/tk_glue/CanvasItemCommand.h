@@ -2,6 +2,7 @@
 //   .c create rectangle ...
 //   .c coords item ?coords?
 //   .c move tagOrId dx dy
+//   .c moveto tagOrId x y
 //   .c delete tagOrId ...
 //   .c itemconfigure item ?-option value? ...
 //   .c bbox tagOrId ...
@@ -22,8 +23,9 @@ int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp, int objc, Tcl
 // Resolves Tk-style item specs (item id / "all" / tag name) in
 // objv[firstArg, limit) to a deduplicated list of existing item ids, sorted
 // bottom-to-top (display list order).
-// A purely numeric spec that does not name an existing item is an error
-// (Tk semantics); a tag matching nothing is *not*.
+// A purely numeric spec that does not name an existing item selects nothing
+// (Tk semantics: silent no-op); a tag matching nothing is *not* an error
+// either.
 bool ResolveItemSpecs(CanvasWidget& widget, Tcl_Interp* interp,
                       Tcl_Obj* const objv[], int firstArg, int limit,
                       std::vector<int>& out);

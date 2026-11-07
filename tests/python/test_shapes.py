@@ -82,7 +82,7 @@ def test_polygon_default_fill(canvas):
 
 def test_polygon_bbox(canvas):
     item = canvas.create_polygon(20, 10, 100, 40, 40, 90)
-    assert canvas.bbox(item) == pytest.approx((20, 10, 100, 90))
+    assert canvas.bbox(item) == pytest.approx((19, 9, 101, 91))
 
 
 def test_create_arc(canvas):

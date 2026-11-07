@@ -4,6 +4,8 @@
 #include <cmath>
 #include <utility>
 
+#include "tkd2dcanvas/TkAreaOverlap.h"
+
 RectItem::RectItem(Id id, double x1, double y1, double x2, double y2)
     : CanvasItem(id, "rectangle"), x1_(x1), y1_(y1), x2_(x2), y2_(y2) {
     // Tk defaults: no fill, black 1px outline.
@@ -11,8 +13,30 @@ RectItem::RectItem(Id id, double x1, double y1, double x2, double y2)
 }
 
 BBox RectItem::GetBBox() const {
-    return BBox{std::min(x1_, x2_), std::min(y1_, y2_),
-                std::max(x1_, x2_), std::max(y1_, y2_)};
+    // Tk: the bbox is an integer box with a pen-width bloat (ComputeRectOvalBBox).
+    return TkRectOvalBBox(x1_, y1_, x2_, y2_, TkHasOutlineGC(Style()), Style().width);
+}
+
+int RectItem::AreaOverlap(const double rect[4]) const {
+    // Tk's rect areaProc (RectToArea in tkRectOval.c), on the raw bbox.
+    const double x1 = std::min(x1_, x2_), x2 = std::max(x1_, x2_);
+    const double y1 = std::min(y1_, y2_), y2 = std::max(y1_, y2_);
+    const double halfWidth = TkHasOutlineGC(Style()) ? Style().width / 2.0 : 0.0;
+
+    if ((rect[2] <= x1 - halfWidth) || (rect[0] >= x2 + halfWidth)
+        || (rect[3] <= y1 - halfWidth) || (rect[1] >= y2 + halfWidth)) {
+        return -1;
+    }
+    if (!Style().fill.has_value() && TkHasOutlineGC(Style())
+        && (rect[0] >= x1 + halfWidth) && (rect[1] >= y1 + halfWidth)
+        && (rect[2] <= x2 - halfWidth) && (rect[3] <= y2 - halfWidth)) {
+        return -1;
+    }
+    if ((rect[0] <= x1 - halfWidth) && (rect[1] <= y1 - halfWidth)
+        && (rect[2] >= x2 + halfWidth) && (rect[3] >= y2 + halfWidth)) {
+        return 1;
+    }
+    return 0;
 }
 
 void RectItem::Translate(double dx, double dy) {
@@ -20,7 +44,9 @@ void RectItem::Translate(double dx, double dy) {
 }
 
 double RectItem::DistanceTo(Point p) const {
-    const BBox box = GetBBox();
+    const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
+    const double top = std::min(y1_, y2_), bottom = std::max(y1_, y2_);
+    const BBox box{left, top, right, bottom};
     if (!box.IsValid()) return 0.0;
 
     const double dx = (p.x < box.left) ? box.left - p.x

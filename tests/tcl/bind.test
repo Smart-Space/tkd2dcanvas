@@ -43,7 +43,7 @@ test bind-bad-sequence "an invalid event pattern is an error" -body {
 test bind-unknown-id "binding an unknown item id errors" -body {
     catch {.c bind 987654 <Button-1> {puts x}} msg
     set msg
-} -result "invalid item identifier \"987654\""
+} -result "item \"987654\" doesn't exist"
 
 test bind-dispatch "a tag binding fires when the item is clicked" -body {
     clearBindings

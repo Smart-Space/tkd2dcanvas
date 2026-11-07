@@ -10,13 +10,14 @@
 | `create_oval` | ✅ (M4) | |
 | `create_line` | ✅ (M4) | 支持多点折线；-fill 作画笔颜色；-joinstyle bevel/miter/round（默认 round）；-capstyle butt/projecting/round（默认 butt）；-smooth/-splinesteps（默认 0/12，Tk 算法直译，仅点数 > 2 生效） |
 | `create_polygon` | ✅ (M4) | 默认黑色填充；支持多点折线；-joinstyle bevel/miter/round（默认 round）；-smooth/-splinesteps（默认 0/12；`-smooth raw` 三次贝塞尔 knot 模式） |
-| `create_arc` | ✅ (M4) | 含 -start/-extent/-style（pieslice/chord/arc）；-offset 明确不支持|
+| `create_arc` | ✅ (M4) | 含 -start/-extent/-style（pieslice/chord/arc）；-offset 明确不支持；`-start`/`-extent` 在配置时按 Tk 归一化（start 归一到 [0, 360)，extent 按整圈截掉；`-extent 360` 归一为 0） |
 | `create_text` | ⬜ (M4 基础 / M9 增强) | font/anchor/justify |
 | `create_image` | ⬜ (M9) | 依赖 Tk photo |
 | `create_bitmap` | ⬜ (M9) | XBM |
 | `create_window` | ❌ 0.x | 见 roadmap M10 |
 | `coords` | ✅ (M4/M5) | 支持 tag/id 并集；单个 list 参数亦可 |
 | `move` | ✅ (M4/M5) | |
+| `moveto` | ✅ (M6) | 语义同 Tk：把**第一个匹配 item** 的 bbox 左上角对齐到 (x, y)，所有匹配 item 按同一增量平移 |
 | `delete` | ✅ (M4/M5) | |
 | `itemconfigure` / `itemconfig` | ✅ (M5) | 支持 tag/id 并集设置；无选项时报告 dict |
 | `itemcget` | ✅ (M5) | 返回首项匹配值；颜色以 #rrggbb 返回 |
@@ -67,6 +68,7 @@ rectangle/oval 不开放 -smooth/-splinesteps。
 - `-dashoffset` 按 canvas 单位解析（Tk 的 `<length>` 单位词尾（`c`/`i`/`m`/`p`）不支持，按纯数字解析）。
 - `-smooth` 平滑只改变绘制与命中测试用的离散曲线点；`coords` 仍返回原始顶点。
 - 平滑多边形的 bbox 按原始顶点计算（Tk 行为：曲线不参与 bbox）。
+- `coords` 输出为最简形式（`"102 102 …"`），Tk 输出带小数点（`"102.0 102.0 …"`），数值相等；`bbox` 输出恒为整数（与 Tk 一致）。
 
 ### M6（tag / find / bind）的具体差异
 
@@ -81,7 +83,7 @@ rectangle/oval 不开放 -smooth/-splinesteps。
   `halo` 先从距离里减掉、最低为 0；距离并列时顶层 item 优先。
   `find closest` 只返回**一个** item。
 - `find above` / `find below` 与 Tk 一致，只返回紧邻的一个 item。
-- `find overlapping` / `find enclosed` 按 item 的 **bbox** 判定（与 Tk 一致）。
+- `find overlapping` / `find enclosed`：**line / rectangle / oval / polygon / arc** 均用 Tk 的精确 areaProc 与 Tk 一致；先以 ±1px 整数化 bbox 粗筛再精确判定（与 Tk 的 FindArea 一致）。
 - tag 绑定的派发顺序：`all` → item 的 tag（**按添加顺序**）→ item 本身；
   与 Tk 的 canvas 完全一致。指针不在任何 item 上时**不派发**（`all` 也不例外），
   但键盘事件例外：没有当前 item 时只派发 `all`。

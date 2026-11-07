@@ -50,10 +50,10 @@ test polygon-empty-fill "polygon with empty fill is not painted" -body {
     .c itemcget $id -fill
 } -result {}
 
-test polygon-bbox "bbox covers all polygon points" -body {
+test polygon-bbox "bbox reports the polygon's Tk bounding box" -body {
     set id [.c create polygon 20 10 100 40 40 90]
     .c bbox $id
-} -result "20 10 100 90"
+} -result "19 9 101 91"
 
 test polygon-move "move translates every point" -body {
     set id [.c create polygon 0 0 10 0 5 10]
@@ -169,10 +169,10 @@ test arc-atomic "mixed bad option in one call changes nothing" -body {
     list [expr {[string length $msg] > 0}] [.c itemcget $id -width]
 } -result {1 2}
 
-test arc-bbox "arc bbox is the full ellipse bounds" -body {
+test arc-bbox "arc bbox is the arc's extent box (Tk semantics)" -body {
     set id [.c create arc 10 20 110 120 -start 30 -extent 60]
     .c bbox $id
-} -result "10 20 110 120"
+} -result "58 18 105 72"
 
 test arc-coords-roundtrip "arc coords round-trip" -body {
     set id [.c create arc 10 20 110 120]

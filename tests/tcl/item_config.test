@@ -110,13 +110,13 @@ test itemconfigure-tags-replace "-tags replaces the whole tag set" -body {
     set id [.c create rectangle 0 0 10 10 -tags keep]
     .c itemconfigure $id -tags {alpha beta}
     list [.c bbox keep] [.c bbox alpha] [.c bbox beta]
-} -result {{} {0 0 10 10} {0 0 10 10}}
+} -result {{} {-1 -1 11 11} {-1 -1 11 11}}
 
 test itemconfigure-tags-single "-tags accepts a single bare tag name" -body {
     set id [.c create rectangle 0 0 10 10]
     .c itemconfigure $id -tags one
     .c bbox one
-} -result "0 0 10 10"
+} -result "-1 -1 11 11"
 
 test itemconfigure-tags-clear "empty -tags list clears all tags" -body {
     set id [.c create rectangle 0 0 10 10 -tags keep]
@@ -130,20 +130,20 @@ test itemcget-unknown-option "itemcget rejects unknown options" -body {
     set msg
 } -result "unknown option \"-bogus\""
 
-test itemcget-unknown-item "itemcget on a missing numeric id errors" -body {
+test itemcget-unknown-item "itemcget on a missing numeric id is a silent no-op" -body {
     catch {.c itemcget 424242 -fill} msg
     set msg
-} -result "invalid item identifier \"424242\""
+} -result ""
 
-test itemconfigure-unknown-item "itemconfigure on a missing numeric id errors" -body {
+test itemconfigure-unknown-item "itemconfigure on a missing numeric id is a silent no-op" -body {
     catch {.c itemconfigure 424242 -width 3} msg
     set msg
-} -result "invalid item identifier \"424242\""
+} -result ""
 
-test itemcget-no-such-tag "query on a tag matching nothing errors" -body {
+test itemcget-no-such-tag "query on a tag matching nothing is a silent no-op" -body {
     catch {.c itemcget no-such-tag -fill} msg
     set msg
-} -result "no such item or tag \"no-such-tag\""
+} -result ""
 
 test itemconfigure-no-match-set "set with an empty tag match is a no-op" -body {
     .c itemconfigure no-such-tag -width 3

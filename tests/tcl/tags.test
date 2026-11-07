@@ -19,10 +19,10 @@ test tags-gettags-order "gettags reports the tags in the order they were added" 
     .c gettags $id
 } -result "alpha beta"
 
-test tags-gettags-unknown "gettags on an unknown id errors" -body {
+test tags-gettags-unknown "gettags on an unknown id is a silent no-op" -body {
     catch {.c gettags 999999} msg
     set msg
-} -result "invalid item identifier \"999999\""
+} -result ""
 
 test tags-addtag-withtag "addtag tags the matching item" -body {
     .c delete all

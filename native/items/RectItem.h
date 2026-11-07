@@ -9,6 +9,7 @@ public:
 
     BBox GetBBox() const override;
     void Translate(double dx, double dy) override;
+    int AreaOverlap(const double rect[4]) const override;
     double DistanceTo(Point p) const override;
     void Draw(Renderer& renderer) const override;
 

@@ -19,10 +19,10 @@ test coords-query-line "coords returns every point of a line" -body {
     .c coords $id
 } -result "1 2 3 4 5 6"
 
-test coords-query-unknown-item "querying an unknown id errors" -body {
+test coords-query-unknown-item "querying an unknown id is a silent no-op" -body {
     catch {.c coords 999} msg
     set msg
-} -result "invalid item identifier \"999\""
+} -result ""
 
 test coords-set "coords rewrites the item's coordinates" -body {
     set id [.c create rectangle 0 0 10 10]
@@ -66,23 +66,23 @@ test move-by-tag "move works on tags created via -tags" -body {
     .c coords $id
 } -result "100 0 110 10"
 
-test move-unknown-id "moving an unknown id errors" -body {
+test move-unknown-id "moving an unknown id is a silent no-op" -body {
     catch {.c move 9999 1 1} msg
     set msg
-} -result "invalid item identifier \"9999\""
+} -result ""
 
 test delete-test "delete removes the item" -body {
     set id [.c create rectangle 0 0 10 10]
     .c delete $id
-    expr {[catch {.c coords $id} msg] && [string match {invalid item identifier*} $msg]}
+    expr {[catch {.c coords $id} msg] == 0 && $msg eq ""}
 } -result 1
 
 test delete-multiple "delete removes every listed spec" -body {
     set a [.c create rectangle 5000 5000 5010 5010]
     set b [.c create oval 5100 5100 5110 5110]
     .c delete $a $b
-    list [catch {.c coords $a}] [catch {.c coords $b}]
-} -result {1 1}
+    list [.c coords $a] [.c coords $b]
+} -result {{} {}}
 
 test delete-all "delete all removes every item" -body {
     .c create rectangle 0 0 10 10
@@ -91,25 +91,25 @@ test delete-all "delete all removes every item" -body {
     list [.c bbox all] [winfo exists .c]
 } -result {{} 1}
 
-test bbox-single "bbox reports the exact item bounds" -body {
+test bbox-single "bbox reports the item's Tk bounding box" -body {
     set id [.c create rectangle 10 10 100 80]
     .c bbox $id
-} -result "10 10 100 80"
+} -result "9 9 101 81"
 
 test bbox-union "bbox unions multiple items" -body {
     set a [.c create rectangle 10 10 20 20]
     set b [.c create rectangle 100 100 200 300]
     .c bbox $a $b
-} -result "10 10 200 300"
+} -result "9 9 201 301"
 
 test bbox-empty-match "bbox with no matching items returns the empty string" -body {
     .c bbox no-such-tag
 } -result ""
 
-test bbox-unknown-id "bbox on an unknown id errors" -body {
+test bbox-unknown-id "bbox on an unknown id is a silent no-op" -body {
     catch {.c bbox 424242} msg
     set msg
-} -result "invalid item identifier \"424242\""
+} -result ""
 
 destroy .c
 

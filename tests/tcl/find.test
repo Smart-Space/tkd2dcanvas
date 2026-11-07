@@ -41,10 +41,10 @@ test find-withtag-unknown "find withtag on an unknown tag returns an empty list"
     .c find withtag nosuchtag
 } -result ""
 
-test find-withtag-unknown-id "find withtag on an unknown id errors" -body {
+test find-withtag-unknown-id "find withtag on an unknown id is a silent no-op" -body {
     catch {.c find withtag 987654} msg
     set msg
-} -result "invalid item identifier \"987654\""
+} -result ""
 
 test find-closest "find closest returns the item near the coordinates" -body {
     .c delete all

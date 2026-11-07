@@ -28,6 +28,7 @@ public:
     BBox GetBBox() const override;
     void Translate(double dx, double dy) override;
     double DistanceTo(Point p) const override;
+    int AreaOverlap(const double rect[4]) const override;
     void Draw(Renderer& renderer) const override;
 
     const std::vector<Point>& Points() const { return points_; }

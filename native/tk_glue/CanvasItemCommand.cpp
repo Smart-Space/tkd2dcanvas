@@ -61,8 +61,9 @@ void InvalidateItem(CanvasWidget& widget, const CanvasItem& item, double padWidt
 
 // Resolves Tk-style item specs (item id / "all" / tag name) in
 // objv[firstArg, limit) to a deduplicated list of existing item ids.
-// A purely numeric spec that does not name an existing item is an error
-// (Tk semantics); a tag matching nothing is *not*.
+// A purely numeric spec that does not name an existing item selects
+// nothing and is *not* an error (Tk semantics: `move 9999 1 1` and
+// friends are silent no-ops); a tag matching nothing is *not* either.
 static bool ResolveItemSpecsImpl(CanvasWidget& widget, Tcl_Interp* interp,
                                  Tcl_Obj* const objv[], int firstArg, int limit,
                                  std::vector<int>& out) {
@@ -85,9 +86,6 @@ static bool ResolveItemSpecsImpl(CanvasWidget& widget, Tcl_Interp* interp,
                 value >= 0 && value <= INT_MAX &&
                 widget.model.Exists(static_cast<int>(value))) {
                 append(static_cast<int>(value));
-            } else {
-                Tcl_SetObjResult(interp, Tcl_ObjPrintf("invalid item identifier \"%s\"", spec));
-                return false;
             }
         } else if (std::strcmp(spec, "all") == 0) {
             for (int id : widget.model.AllItemIds()) append(id);
@@ -223,8 +221,8 @@ int CoordsCmd(CanvasWidget& widget, Tcl_Interp* interp,
     if (objc == 3) {
         // Query: report the coordinates of the first matching item.
         if (ids.empty()) {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("no such item or tag \"%s\"", Tcl_GetString(objv[2])));
-            return TCL_ERROR;
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+            return TCL_OK;
         }
         CanvasItem* item = widget.model.FindItem(ids.front());
         if (!item) {
@@ -309,6 +307,52 @@ int MoveCmd(CanvasWidget& widget, Tcl_Interp* interp,
     return TCL_OK;
 }
 
+int MoveToCmd(CanvasWidget& widget, Tcl_Interp* interp,
+              int objc, Tcl_Obj* const objv[]) {
+    if (objc != 5) {
+        Tcl_WrongNumArgs(interp, 2, objv, "moveto tagOrId x y");
+        return TCL_ERROR;
+    }
+
+    // Tk: x and y may be the empty string, in which case the corresponding
+    // coordinate is unchanged.
+    double newX = 0.0, newY = 0.0;
+    const bool xBlank = (Tcl_GetString(objv[3])[0] == '\0');
+    const bool yBlank = (Tcl_GetString(objv[4])[0] == '\0');
+    if (!xBlank && Tcl_GetDoubleFromObj(interp, objv[3], &newX) != TCL_OK) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("expected number but got \"%s\"", Tcl_GetString(objv[3])));
+        return TCL_ERROR;
+    }
+    if (!yBlank && Tcl_GetDoubleFromObj(interp, objv[4], &newY) != TCL_OK) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("expected number but got \"%s\"", Tcl_GetString(objv[4])));
+        return TCL_ERROR;
+    }
+
+    std::vector<int> ids;
+    if (!ResolveItemSpecs(widget, interp, objv, /*firstArg=*/2, /*limit=*/3, ids)) {
+        return TCL_ERROR;
+    }
+    if (ids.empty()) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+        return TCL_OK;
+    }
+
+    const BBox ref = widget.model.ItemBBox(ids.front());
+    const double dx = xBlank ? 0.0 : newX - ref.left;
+    const double dy = yBlank ? 0.0 : newY - ref.top;
+
+    for (int id : ids) {
+        CanvasItem* item = widget.model.FindItem(id);
+        if (!item) continue;
+        const BBox before = item->GetBBox();
+        item->Translate(dx, dy);
+        InvalidatePadded(widget, before, item->Style().width);
+        InvalidateItem(widget, *item);
+    }
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+    return TCL_OK;
+}
+
 int DeleteCmd(CanvasWidget& widget, Tcl_Interp* interp,
               int objc, Tcl_Obj* const objv[]) {
     if (objc < 3) {
@@ -352,7 +396,7 @@ int BBoxCmd(CanvasWidget& widget, Tcl_Interp* interp,
     bool any = false;
     for (int id : ids) {
         const BBox box = widget.model.ItemBBox(id);
-        if (!box.IsValid()) continue;
+        if (box.left >= box.right || box.top >= box.bottom) continue;
         unionBox = unionBox.Union(box);  // Empty unions correctly
         any = true;
     }
@@ -382,8 +426,8 @@ int ItemConfigureCmd(CanvasWidget& widget, Tcl_Interp* interp,
     if (objc == 3) {
         // Report mode: dict of the first matching item's options.
         if (ids.empty()) {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("no such item or tag \"%s\"", Tcl_GetString(objv[2])));
-            return TCL_ERROR;
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+            return TCL_OK;
         }
         CanvasItem* item = widget.model.FindItem(ids.front());
         if (!item) return TCL_ERROR;
@@ -442,8 +486,8 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
         return TCL_ERROR;
     }
     if (ids.empty()) {
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("no such item or tag \"%s\"", Tcl_GetString(objv[2])));
-        return TCL_ERROR;
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+        return TCL_OK;
     }
     CanvasItem* item = widget.model.FindItem(ids.front());
     if (!item) return TCL_ERROR;
@@ -492,6 +536,9 @@ int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
     }
     if (cmd == "move") {
         return MoveCmd(widget, interp, objc, objv);
+    }
+    if (cmd == "moveto") {
+        return MoveToCmd(widget, interp, objc, objv);
     }
     if (cmd == "delete") {
         return DeleteCmd(widget, interp, objc, objv);

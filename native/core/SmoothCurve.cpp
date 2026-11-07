@@ -51,10 +51,10 @@ std::vector<Point> MakeBezierCurve(const std::vector<Point>& point, int numSteps
         control[1] = 0.5 * point[m - 2].y + 0.5 * point[0].y;
         control[2] = 0.167 * point[m - 2].x + 0.833 * point[0].x;
         control[3] = 0.167 * point[m - 2].y + 0.833 * point[0].y;
-        control[4] = 0.833 * point[0].x + 0.167 * point[2].x;
-        control[5] = 0.833 * point[0].y + 0.167 * point[2].y;
-        control[6] = 0.5 * point[0].x + 0.5 * point[2].x;
-        control[7] = 0.5 * point[0].y + 0.5 * point[2].y;
+        control[4] = 0.833 * point[0].x + 0.167 * point[1].x;
+        control[5] = 0.833 * point[0].y + 0.167 * point[1].y;
+        control[6] = 0.5 * point[0].x + 0.5 * point[1].x;
+        control[7] = 0.5 * point[0].y + 0.5 * point[1].y;
         out.push_back(Point{control[0], control[1]});
         EmitBezierPoints(control, numSteps, out);
     } else {
@@ -72,8 +72,8 @@ std::vector<Point> MakeBezierCurve(const std::vector<Point>& point, int numSteps
         if (i == 2 && !closed) {
             control[0] = p0.x;
             control[1] = p0.y;
-            control[2] = 0.333 * p0.x + 0.667 * p2.x;
-            control[3] = 0.333 * p0.y + 0.667 * p2.y;
+            control[2] = 0.333 * p0.x + 0.667 * p1.x;
+            control[3] = 0.333 * p0.y + 0.667 * p1.y;
         } else {
             control[0] = 0.5 * p0.x + 0.5 * p1.x;
             control[1] = 0.5 * p0.y + 0.5 * p1.y;

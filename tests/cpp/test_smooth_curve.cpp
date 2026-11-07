@@ -30,13 +30,15 @@ int main() {
     CHECK(ClampSplineSteps(1000000) == 100);
 
     // Open 3-point curve, steps=2: A(0,0) B(10,0) C(20,0).
+    // Tk: first spline of an open curve has control points
+    //   (0,0) (6.667,0) (13.333,0) (20,0); at t=0.5 the curve is at x=10.
     const std::vector<Point> open3 = {{0, 0}, {10, 0}, {20, 0}};
     SmoothOptions bezier2{SmoothMode::Bezier, 2};
     std::vector<Point> out = SmoothCurvePoints(open3, bezier2);
     CHECK(out.size() == 1 + 1 * 2);  // seed + (m-2) * steps
     CHECK(out.front() == open3.front());
     CHECK(out.back() == open3.back());
-    CHECK(Close(out[1].x, 12.5, 0.01) && Close(out[1].y, 0.0, 0.01));  // ~12.5 with Tk's 0.333/0.667 constants
+    CHECK(Close(out[1].x, 10.0, 0.01) && Close(out[1].y, 0.0, 0.01));  // Tk's 0.333/0.667 constants
 
     // Open curve with steps=12: point count follows 1 + (m-2)*steps.
     const std::vector<Point> open5 = {{0, 0}, {10, -8}, {20, 0}, {30, 8}, {40, 0}};

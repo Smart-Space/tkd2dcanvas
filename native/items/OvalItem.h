@@ -10,6 +10,7 @@ public:
     BBox GetBBox() const override;
     void Translate(double dx, double dy) override;
     double DistanceTo(Point p) const override;
+    int AreaOverlap(const double rect[4]) const override;
     void Draw(Renderer& renderer) const override;
 
     std::vector<double> GetCoordinates() const override { return {x1_, y1_, x2_, y2_}; }
