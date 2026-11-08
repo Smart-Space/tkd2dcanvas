@@ -31,3 +31,6 @@ python/tkd2dcanvas/tcl/tkd2dcanvas/tkd2dcanvas01.dll
 .vs/
 .idea/
 Thumbs.db
+
+.ignore
+tests/tinui/

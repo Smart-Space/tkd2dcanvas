@@ -18,6 +18,7 @@
 #include "tkd2dcanvas/Color.h"
 
 #include "Win32Surface.h"
+#include "CanvasTkWindowItem.h"
 
 namespace tkd2dcanvas {
 
@@ -80,6 +81,7 @@ struct CanvasWidget {
     int eventDepth = 0;
     bool destroyPending = false;
     bool scrollbarsPending = false;
+    WindowItemBindings windowItemBindings;
     int scanMarkX = 0;
     int scanMarkY = 0;
     double scanOriginX = 0.0;

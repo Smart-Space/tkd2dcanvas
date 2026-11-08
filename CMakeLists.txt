@@ -181,6 +181,10 @@ if(TKG_BUILD_TESTS AND WIN32)
         add_test(NAME ${test_name} COMMAND ${test_name})
     endforeach()
 
+    add_executable(test_window_item tests/cpp/test_window_item.cpp native/items/WindowItem.cpp ${TKG_CORE_SOURCES})
+    target_include_directories(test_window_item PRIVATE native/include native/items)
+    add_test(NAME test_window_item COMMAND test_window_item)
+
     # The item classes are needed to test the hit test of the concrete items.
     set(TKG_ITEM_SOURCES
         native/items/RectItem.cpp
@@ -191,6 +195,7 @@ if(TKG_BUILD_TESTS AND WIN32)
         native/items/TextItem.cpp
         native/items/ImageItem.cpp
         native/items/BitmapItem.cpp
+        native/items/WindowItem.cpp
         native/items/ItemRegistrations.cpp
     )
     add_executable(test_item_hit tests/cpp/test_item_hit.cpp ${TKG_CORE_SOURCES} ${TKG_ITEM_SOURCES})

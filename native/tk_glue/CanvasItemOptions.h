@@ -78,6 +78,10 @@ struct ItemConfig {
     // item's anchor point; normalized to [0, 360) by the item.
     bool hasAngle = false;
     double angle = 0.0;
+    bool hasWindow = false;
+    std::string windowPath;  // "" detaches the embedded window
+    bool hasHeight = false;
+    double height = 0.0;  // pixels
     bool hasState = false;
     ItemState state = ItemState::Normal;
     bool hasDisabledFill = false;
@@ -107,8 +111,8 @@ bool ParseItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
 
 // Checks that the parsed options make sense for `item` (arc-only options are
 // rejected on other item types). Returns true when the config is applicable.
-bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
-                     const ItemConfig& config);
+bool CheckItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
+                     const CanvasItem& item, const ItemConfig& config);
 
 // Applies a validated config to one item (including tag replacement).
 // Cannot fail; call ParseItemConfig first.

@@ -176,6 +176,8 @@ void CanvasWidget::FinalizeDestroy() {
     // A destroyed widget must not be touched by a pending idle callback.
     CancelScrollbarUpdate(*this);
 
+    ShutdownWindowItems(*this);
+
     if (hwnd) {
         DetachCanvasFromWindow(hwnd, this);
         hwnd = nullptr;
@@ -287,6 +289,8 @@ void CanvasWidget::UpdateGeometry() {
 
     model.View().SetViewSize(width, height);
     RequestScrollbarUpdate(*this);
+
+    SyncWindowItems(*this);
 }
 
 void CanvasWidget::Invalidate() {
@@ -473,6 +477,7 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
     auto fallbackFullRepaint = [this]() {
         Invalidate();
         UpdateWindow(hwnd);
+        SyncWindowItems(*this);
     };
 
     const double roundedX = std::round(deltaX);
@@ -513,7 +518,7 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
     }
 
     if (ScrollWindowEx(hwnd, shiftX, shiftY, nullptr, nullptr, nullptr, nullptr,
-                       SW_SCROLLCHILDREN | SW_INVALIDATE) == ERROR) {
+                       SW_INVALIDATE) == ERROR) {
         fallbackFullRepaint();
         return;
     }
@@ -543,6 +548,7 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
         const BBox box{rect.left + oldX, rect.top + oldY, rect.right - 1 + oldX, rect.bottom - 1 + oldY};
         Invalidate(box);
     }
+    SyncWindowItems(*this);
 
     UpdateWindow(hwnd);
 }

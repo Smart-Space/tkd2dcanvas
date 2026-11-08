@@ -69,7 +69,7 @@ public:
 
     // --- Coordinates ---------------------------------------------------------
     // Flat Tk-style coordinate list ("x1 y1 x2 y2 ..."). Items that do not
-    // support coordinates (window items, ...) keep the defaults.
+    // support coordinates keep the defaults.
     virtual std::vector<double> GetCoordinates() const { return {}; }
     // Sets coordinates from a flat list. False = nothing changed.
     virtual bool SetCoordinates(const std::vector<double>& coords) {

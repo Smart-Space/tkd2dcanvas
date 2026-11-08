@@ -56,7 +56,7 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
     （`pushClip` 取交集，`popClip` 恢复）。
   - 抗锯齿：`SetAntialiasMode(PER_PRIMITIVE)`，文字 ClearType。
   - 断设备（`D2DERR_RECREATE_TARGET`）：自动丢弃 render target，下一帧重建。
-- `Win32Surface`：32bpp 双缓冲 + D2D 绘制 + `BitBlt`；由 Tk 的Expose/Configure 事件驱动 `Paint()`。`WM_PAINT` 使用精确的 update region 矩形列表（不是包围盒）；滚动时先用 `ScrollWindowEx` + 后备缓冲`ScrollContent` 平移像素，再只重画新暴露条带；滚动命令内还会用 `UpdateWindow` 强制同步绘制，避免条带在延迟绘制前显示旧内容。
+- `Win32Surface`：32bpp 双缓冲 + D2D 绘制 + `BitBlt`；由 Tk 的Expose/Configure 事件驱动 `Paint()`。`WM_PAINT` 使用精确的 update region 矩形列表（不是包围盒）；滚动时先用 `ScrollWindowEx` + 后备缓冲`ScrollContent` 平移像素，再只重画新暴露条带；滚动命令内还会用 `UpdateWindow` 强制同步绘制，避免条带在延迟绘制前显示旧内容。`ScrollWindowEx` 不再移动子窗口（`SW_SCROLLCHILDREN` 已移除）：window item 的内嵌窗口由 `SyncWindowItems`（tk_glue/CanvasTkWindowItem.cpp）按模型 bbox − view origin 显式定位/map/unmap，分数 origin 与完整 repaint fallback 路径都能对齐；子窗口移动后会使其旧区域重绘。
 - `D2DRenderer` 的 DC 绑定在 HDC/尺寸不变时跨帧复用；后备缓冲重建时由`Win32Surface` 调 `ResetBinding()` 强制重新 `BindDC`。
 - `tk_glue`：`Tkd2dcanvas_Init`（package 入口，初始化 D2D/DWrite
   factory）、`tkd2dcanvas` 全局命令、`CanvasWidget`、各子命令分发。
@@ -96,6 +96,5 @@ Tk/Win 上**每个 Tk widget 都拥有一个自己的 Win32 子窗口**（类名
 
 ## 已知取舍（0.x）
 
-- `create_window`（WindowItem）不支持，列入 M10。
 - 图像：bitmap 按 item id+generation 缓存，上限 64 项）。photo 在配置时拷贝，photo 后续内容变更不自动反映到 canvas。
 - D2D 单线程 factory（Tk 主线程）；跨线程访问需改 `FACTORY_TYPE_MULTI_THREADED`。

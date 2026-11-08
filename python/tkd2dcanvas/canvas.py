@@ -634,10 +634,27 @@ class Canvas(tkinter.Canvas):
         """
         return self.create("bitmap", *self._coords(args), **kw)
 
-    # --- not implemented (see docs/tk_canvas_compat_matrix.md) --------------------
     def create_window(self, *args: Any, **kw: Any) -> int:
-        self._unimplemented("create_window", "milestone M10")
+        """Create a window item at ``x, y`` embedding a Tk widget.
 
+        ``window`` names the path of the Tk widget to embed (e.g. a
+        :class:`tkinter.Button` path); the widget must be a child of the
+        canvas or of one of the canvas' ancestors (same rules as the Tk
+        canvas). ``-width``/``-height`` optionally set the pixel size
+        reserved for the embedded widget (0 = the widget's natural size),
+        and ``-anchor`` controls how the item's positioning point relates
+        to the window's rectangle (Tk default: ``center``).
+
+        Window items are drawn above all graphical items; use Tk's
+        ``raise``/``lower`` commands to restack the embedded windows
+        relative to each other.
+
+        The window option may be set or changed later with
+        :meth:`itemconfigure`.
+        """
+        return self.create("window", *self._coords(args), **kw)
+
+    # --- not implemented (see docs/tk_canvas_compat_matrix.md) --------------------
     def dchars(self, *args: Any):
         self._unimplemented("dchars", "text item 编辑命令未实现")
 

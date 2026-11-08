@@ -79,9 +79,9 @@
 - [x] `create_image`（Tk photo → D2D bitmap）
 - [x] font 解析（`font actual`）、`create_bitmap`
 
-## 阶段 9：Window item（M10）
+## 阶段 9：Window item（M10）✅ 完成（2026-11-08）
 
-- [ ] `create_window`：真实 Tk 子 HWND 嵌入
+- [x] `create_window`：真实 Tk 子 HWND 嵌入
 
 ## 阶段 10：打包与发布（M11）
 

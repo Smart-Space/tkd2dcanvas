@@ -14,7 +14,7 @@
 | `create_text` | ✅ (M9) | `-text`/`-font`/`-fill`/`-anchor`/`-justify`/`-width`（换行宽度，0=不换行）/`-wrap`（word/char/none）/`-angle`（逆时针，[0, 360)） |
 | `create_image` | ✅ (M9) | Tk photo → RGBA 拷贝（Straight→Premultiplied）；`-image`/`-anchor`；photo 在配置时拷贝像素，之后 photo 内容变更不会自动反映到 canvas |
 | `create_bitmap` | ✅ (M9) | 内嵌 Tk 预定义 XBM（error/gray12/gray25/gray50/gray75/hourglass/info/questhead/question/warning）+ `@file.xbm`；`-bitmap`/`-foreground`/`-background`（`""`=透明/停用）/`-anchor` |
-| `create_window` | ❌ 0.x | 见 roadmap M10 |
+| `create_window` | ✅ (M10) | 真实 Tk 子窗口嵌入；`-window`（必须存在，必须是 canvas 或其祖先的子窗口；toplevel/canvas 自身报错）、`-width`/`-height`（像素，0=内嵌窗口自然尺寸）、`-anchor`（默认 center）、`-state`；内嵌窗口 requested size 变化自动回流 bbox（几何管理器）；bbox 与滚动一致（`SyncWindowItems` 显式定位，见 roadmap M10）；窗口项恒绘制在图形项之上；相对次序用 Tk `raise`/`lower` 调整；`itemconfigure -window ""` 可解除嵌入 |
 | `coords` | ✅ (M4/M5) | 支持 tag/id 并集；单个 list 参数亦可 |
 | `move` | ✅ (M4/M5) | |
 | `moveto` | ✅ (M6) | 语义同 Tk：把**第一个匹配 item** 的 bbox 左上角对齐到 (x, y)，所有匹配 item 按同一增量平移 |
@@ -57,7 +57,8 @@ line/polygon：`-joinstyle`；line 另有 `-capstyle`。
 line/polygon 另有：`-smooth`（`0`/布尔/`true`/`bezier`/`raw`，支持 Tk 前缀缩写，空串 = 关闭）、`-splinesteps`（整数，钳制 1–100，默认 12）。
 arc：`-start -extent -style`。
 rectangle/oval 不开放 -smooth/-splinesteps。
-
+window item 专用：`-window`（内嵌窗口 path）、`-height`（像素，0=自然尺寸）、`-anchor`（nw/n/ne/e/se/s/sw/w/center，默认 center）；`-width` 在 window item 上同为像素语义（`0`=内嵌窗口自然尺寸）。
+text/image/bitmap/window item 均支持 `-anchor`（window 默认 center）。
 明确不支持（会按未知选项报错）：
 - `-offset`（arc/line/polygon 等的 stipple 偏移；Tk 该选项仅用于位图平铺，本项目不计划支持位图 stipple）
 - `-outlineoffset`

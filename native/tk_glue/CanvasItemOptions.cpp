@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -18,11 +19,13 @@
 #include "TextItem.h"
 #include "ImageItem.h"
 #include "BitmapItem.h"
+#include "WindowItem.h"
 #include "CanvasTkColor.h"
 #include "CanvasTkFont.h"
 #include "CanvasTkImage.h"
 #include "CanvasTextMetrics.h"
 #include "CanvasWidget.h"
+#include "CanvasTkWindowItem.h"
 
 namespace tkd2dcanvas {
 
@@ -458,6 +461,23 @@ bool ParseItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
                 out.bitmapHeight = bits.height;
                 out.bitmapBits = std::move(bits.bits);
             }
+        } else if (name == "window") {
+            const char* spec = Tcl_GetString(value);
+            out.hasWindow = true;
+            out.windowPath = spec ? spec : "";
+        } else if (name == "height") {
+            double height = 0.0;
+            if (Tcl_GetDoubleFromObj(interp, value, &height) != TCL_OK ||
+                !std::isfinite(height)) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad height \"%s\": expected a number", Tcl_GetString(value)));
+                return false;
+            }
+            if (height < 0.0) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad screen distance \"%s\": expected a non-negative number", Tcl_GetString(value)));
+                return false;
+            }
+            out.hasHeight = true;
+            out.height = height;
         } else if (name == "foreground" || name == "background") {
             std::optional<Color> color;
             if (!ParseColorOption(interp, widget, value, color)) return false;
@@ -477,8 +497,7 @@ bool ParseItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
     return true;
 }
 
-bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
-                     const ItemConfig& config) {
+bool CheckItemConfig(Tcl_Interp* interp, CanvasWidget& widget, const CanvasItem& item, const ItemConfig& config) {
     const std::string type = item.Type();
     const bool isShape =
         type == "rectangle" || type == "oval" || type == "line" ||
@@ -501,9 +520,23 @@ bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"%s\" is not valid for %s items", name, type.c_str()));
         return false;
     }
-    if (config.hasWidth && !(isShape || type == "text")) {
+    if (config.hasWidth && !(isShape || type == "text" || type == "window")) {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-width\" is not valid for %s items", type.c_str()));
         return false;
+    }
+    if (config.hasHeight && type != "window") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-height\" is not valid for %s items", type.c_str()));
+        return false;
+    }
+    if (config.hasWindow && type != "window") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-window\" is not valid for %s items", type.c_str()));
+        return false;
+    }
+    if (config.hasWindow && !config.windowPath.empty()) {
+        Tk_Window embedded = nullptr;
+        if (!ValidateWindowItemPath(interp, widget, config.windowPath, embedded)) {
+            return false;
+        }
     }
     if (config.hasJoinStyle &&
         item.Type() != "polygon" && item.Type() != "line") {
@@ -526,7 +559,8 @@ bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
     const bool isText = type == "text";
     const bool isImage = type == "image";
     const bool isBitmap = type == "bitmap";
-    const bool supportsAnchor = isText || isImage || isBitmap;
+    const bool isWindow = type == "window";
+    const bool supportsAnchor = isText || isImage || isBitmap || isWindow;
     auto reject = [&](const char* name) {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"%s\" is not valid for %s items", name, type.c_str()));
         return false;
@@ -602,6 +636,8 @@ void ApplyItemConfig(CanvasWidget& widget, int itemId, CanvasItem& item, const I
     if (config.hasWidth) {
         if (item.Type() == "text") {
             static_cast<TextItem&>(item).SetWrapWidth(config.width);
+        } else if (item.Type() == "window") {
+            // -width on a window item is its pixel width, handled below.
         } else {
             item.Style().width = config.width;
         }
@@ -704,6 +740,23 @@ void ApplyItemConfig(CanvasWidget& widget, int itemId, CanvasItem& item, const I
             RefreshTextLayout(widget, *text, config);
         }
     }
+    if (item.Type() == "window") {
+        auto* w = static_cast<WindowItem*>(&item);
+        if (config.hasAnchor) w->SetAnchor(config.anchor);
+        if (config.hasWindow) {
+            w->SetWindowPath(config.windowPath);
+            AttachWindowItem(widget, itemId);
+        }
+        if (config.hasWidth || config.hasHeight) {
+            const int rqW = config.hasWidth
+                ? std::max(0, static_cast<int>(std::lround(config.width)))
+                : w->RequestedWidth();
+            const int rqH = config.hasHeight
+                ? std::max(0, static_cast<int>(std::lround(config.height)))
+                : w->RequestedHeight();
+            w->SetRequestedSize(rqW, rqH);
+        }
+    }
 }
 
 std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
@@ -720,7 +773,18 @@ std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
         if (item.Type() == "text") {
             return DoubleToString(static_cast<const TextItem&>(item).WrapWidth());
         }
+        if (item.Type() == "window") {
+            return std::to_string(static_cast<const WindowItem&>(item).RequestedWidth());
+        }
         return DoubleToString(item.Style().width);
+    }
+    if (name == "height") {
+        if (item.Type() != "window") return {};
+        return std::to_string(static_cast<const WindowItem&>(item).RequestedHeight());
+    }
+    if (name == "window") {
+        if (item.Type() != "window") return {};
+        return static_cast<const WindowItem&>(item).WindowPath();
     }
     if (name == "dash") {
         return DashToString(item.Style().dash);
@@ -777,6 +841,7 @@ std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
         if (item.Type() == "text") return static_cast<const TextItem&>(item).Anchor();
         if (item.Type() == "image") return static_cast<const ImageItem&>(item).Anchor();
         if (item.Type() == "bitmap") return static_cast<const BitmapItem&>(item).Anchor();
+        if (item.Type() == "window") return static_cast<const WindowItem&>(item).Anchor();
         return {};
     }
     if (name == "image") {
@@ -856,6 +921,12 @@ Tcl_Obj* ItemConfigReport(Tcl_Interp* interp, CanvasItem& item) {
     }
     if (item.Type() == "bitmap") {
         for (const char* name : {"-bitmap", "-foreground", "-background", "-anchor"}) {
+            Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
+            Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
+        }
+    }
+    if (item.Type() == "window") {
+        for (const char* name : {"-window", "-width", "-height", "-anchor"}) {
             Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
             Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
         }

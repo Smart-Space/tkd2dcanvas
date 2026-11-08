@@ -14,6 +14,7 @@
 #include "TextItem.h"
 #include "ImageItem.h"
 #include "BitmapItem.h"
+#include "WindowItem.h"
 
 namespace tkd2dcanvas {
 
@@ -99,6 +100,15 @@ CanvasItemPtr MakeBitmap(CanvasItem::Id id, const std::vector<double>& coords) {
     return std::make_unique<BitmapItem>(id, coords[0], coords[1], "");
 }
 
+CanvasItemPtr MakeWindow(CanvasItem::Id id, const std::vector<double>& coords) {
+    if (coords.size() != 2) {
+        throw std::invalid_argument("wrong # coordinates: expected 2 (x y), got " +
+                                    std::to_string(coords.size()));
+    }
+    // The embedded window arrives via -window (and may be set/changed later).
+    return std::make_unique<WindowItem>(id, coords[0], coords[1]);
+}
+
 }  // namespace
 
 void RegisterBuiltinItems() {
@@ -111,6 +121,7 @@ void RegisterBuiltinItems() {
     factory.Register("text", &MakeText);
     factory.Register("image", &MakeImage);
     factory.Register("bitmap", &MakeBitmap);
+    factory.Register("window", &MakeWindow);
 }
 
 }  // namespace tkd2dcanvas

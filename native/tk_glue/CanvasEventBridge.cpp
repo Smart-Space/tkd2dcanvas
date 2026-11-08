@@ -33,6 +33,10 @@ void CanvasEventProc(ClientData clientData, XEvent* eventPtr) {
 
         case UnmapNotify:
             widget->mapped = false;
+            for (auto& [id, binding] : widget->windowItemBindings) {
+                binding.mapped = false;
+                binding.lastRectValid = false;
+            }
             break;
 
         case DestroyNotify:

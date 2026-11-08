@@ -19,6 +19,7 @@
 #include "CanvasBindCommand.h"
 #include "CanvasTagCommand.h"
 #include "CanvasScrollBridge.h"
+#include "CanvasTkWindowItem.h"
 #include "CanvasWidget.h"
 
 namespace tkd2dcanvas {
@@ -196,12 +197,14 @@ int CreateItemCmd(CanvasWidget& widget, Tcl_Interp* interp,
     // (nothing is applied), then apply: a bad option deletes the half-item.
     ItemConfig config;
     if (!ParseItemConfig(interp, widget, /*firstArg=*/index, objc, objv, config) ||
-        !CheckItemConfig(interp, *created, config)) {
+        !CheckItemConfig(interp, widget, *created, config)) {
+        DetachWindowItem(widget, id);
         widget.model.DeleteItem(id);
         return TCL_ERROR;
     }
     ApplyItemConfig(widget, id, *created, config);
 
+    SyncWindowItems(widget);
     InvalidateItem(widget, *created);
     Tcl_SetObjResult(interp, Tcl_NewIntObj(id));
     return TCL_OK;
@@ -270,7 +273,9 @@ int CoordsCmd(CanvasWidget& widget, Tcl_Interp* interp,
     for (const Backup& backup : applied) {
         InvalidatePadded(widget, backup.oldBox, backup.item->Style().width);
         InvalidateItem(widget, *backup.item);
-    }    Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+    }
+    SyncWindowItems(widget);
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
 }
 
@@ -304,6 +309,7 @@ int MoveCmd(CanvasWidget& widget, Tcl_Interp* interp,
         InvalidatePadded(widget, before, item->Style().width);
         InvalidateItem(widget, *item);
     }
+    SyncWindowItems(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
 }
@@ -354,6 +360,7 @@ int MoveToCmd(CanvasWidget& widget, Tcl_Interp* interp,
         InvalidatePadded(widget, before, item->Style().width);
         InvalidateItem(widget, *item);
     }
+    SyncWindowItems(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
 }
@@ -387,6 +394,7 @@ int ScaleCmd(CanvasWidget& widget, Tcl_Interp* interp,
         InvalidatePadded(widget, before, width);
         InvalidateItem(widget, *item);
     }
+    SyncWindowItems(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
 }
@@ -431,11 +439,13 @@ int DeleteCmd(CanvasWidget& widget, Tcl_Interp* interp,
         if (!item) continue;
         const double width = item->Style().width;
         const BBox box = item->GetBBox();
+        DetachWindowItem(widget, id);
         widget.model.DeleteItem(id);
         if (widget.currentItemId == id) widget.ClearCurrentItem();
         if (widget.focusItemId == id) widget.focusItemId = CanvasModel::kInvalidId;
         InvalidatePadded(widget, box, width);
     }
+    SyncWindowItems(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
 }
@@ -503,7 +513,7 @@ int ItemConfigureCmd(CanvasWidget& widget, Tcl_Interp* interp,
     for (int id : ids) {
         CanvasItem* item = widget.model.FindItem(id);
         if (!item) continue;
-        if (!CheckItemConfig(interp, *item, config)) return TCL_ERROR;
+        if (!CheckItemConfig(interp, widget, *item, config)) return TCL_ERROR;
     }
     for (int id : ids) {
         CanvasItem* item = widget.model.FindItem(id);
@@ -515,6 +525,7 @@ int ItemConfigureCmd(CanvasWidget& widget, Tcl_Interp* interp,
         InvalidatePadded(widget, before, pad);
         InvalidateItem(widget, *item, pad);
     }
+    SyncWindowItems(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
 }
@@ -538,6 +549,7 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
                                      "smooth", "splinesteps",
                                      "text", "font", "anchor", "justify", "wrap",
                                      "image", "bitmap", "foreground", "background", "angle",
+                                     "window", "height",
                                      "state", "disabledfill"};
     bool known = false;
     for (const char* option : kOptions) {
@@ -584,6 +596,10 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
     }
     if ((name == "smooth" || name == "splinesteps") &&
         item->Type() != "line" && item->Type() != "polygon") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    if ((name == "window" || name == "height") && item->Type() != "window") {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
         return TCL_ERROR;
     }

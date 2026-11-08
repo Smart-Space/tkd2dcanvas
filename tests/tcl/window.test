@@ -1,0 +1,182 @@
+# window.test — M10: window item (-window / -width / -height / -anchor /
+#               -state), bbox and scroll consistency
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP window.test: $err"
+    exit 0
+}
+
+tkd2dcanvas .s -width 320 -height 240 -background white -scrollregion {0 0 1000 1000} -yscrollincrement 50 -xscrollincrement 50
+pack .s
+# Every test embeds its own button so the tests do not share geometry
+# management state through the embedded widget.
+button .b1 -text one
+button .b2 -text two
+button .b3 -text three
+button .b4 -text four
+button .b5 -text five
+button .b6 -text six
+button .b7 -text seven
+button .b8 -text eight
+button .b9 -text nine
+button .b10 -text ten
+button .b11 -text eleven
+button .b12 -text twelve
+button .b13 -text thirteen
+button .b14 -text fourteen
+button .b15 -text fifteen
+update
+
+test window-create-bbox "create window + bbox with explicit -width/-height (anchor center)" -body {
+    set id [.s create window 100 100 -window .b1 -width 100 -height 40]
+    list $id [.s bbox $id]
+} -result {1 {50 80 150 120}}
+
+test window-coords "coords round-trip for window items" -body {
+    set id [.s create window 30 40 -window .b2 -width 100 -height 40]
+    .s coords $id
+} -result {30 40}
+
+test window-move "move shifts window items" -body {
+    set id [.s create window 30 40 -window .b3 -width 100 -height 40]
+    .s move $id 10 15
+    list [.s bbox $id] [.s coords $id]
+} -result {{-10 35 90 75} {40 55}}
+
+test window-natural-size-shape "anchor center: the bbox is centered on the point and sized after the widget's request" -body {
+    set id [.s create window 100 100 -window .b4]
+    set bx [.s bbox $id]
+    set w [expr {[lindex $bx 2] - [lindex $bx 0]}]
+    set h [expr {[lindex $bx 3] - [lindex $bx 1]}]
+    set cx [expr {([lindex $bx 0] + [lindex $bx 2]) / 2}]
+    set cy [expr {([lindex $bx 1] + [lindex $bx 3]) / 2}]
+    list $w $h $cx $cy
+} -result [list [winfo reqwidth .b4] [winfo reqheight .b4] 100 100]
+
+test window-scale "scale scales the item point and the requested size" -body {
+    set id [.s create window 50 50 -window .b5 -width 100 -height 40]
+    .s scale $id 0 0 2.0 0.5
+    list [.s coords $id] [.s itemcget $id -width] [.s itemcget $id -height]
+} -result {{100 25} 200 20}
+
+test window-tags "window items support tags" -body {
+    set id [.s create window 10 10 -window .b6 -width 50 -height 20 -tags grp]
+    .s gettags $id
+} -result {grp}
+
+test window-hidden-state "-state hidden unmaps the embedded window and empties the bbox" -body {
+    set id [.s create window 60 60 -window .b7 -width 50 -height 20]
+    update
+    set before [winfo ismapped .b7]
+    .s itemconfigure $id -state hidden
+    set after [winfo ismapped .b7]
+    set box [.s bbox $id]
+    .s itemconfigure $id -state normal
+    set back [winfo ismapped .b7]
+    list $before $after $box $back
+} -result {1 0 {} 1}
+
+test window-delete "delete unmaps the embedded window" -body {
+    set id [.s create window 70 70 -window .b8 -width 50 -height 20]
+    update
+    set before [winfo ismapped .b8]
+    .s delete $id
+    list $before [winfo ismapped .b8]
+} -result {1 0}
+
+test window-destroy-embedded "destroying the embedded window reverts the item to a 1x1 bbox" -body {
+    button .temp_b -text temp
+    set id [.s create window 33 44 -window .temp_b -width 50 -height 20]
+    destroy .temp_b
+    list [.s bbox $id] [.s type $id]
+} -result {{33 44 34 45} window}
+
+test window-bad-path "create window with a nonexistent -window path fails" -body {
+    .s create window 10 10 -window .definitely_not_there
+} -returnCodes error -match glob -result {bad window path name*}
+
+test window-toplevel-rejected "create window with a toplevel -window is rejected" -body {
+    .s create window 10 10 -window .
+} -returnCodes error -result {can't use . in a window item of this canvas}
+
+test window-canvas-rejected "create window with the canvas itself as -window is rejected" -body {
+    .s create window 10 10 -window .s
+} -returnCodes error -result {can't use .s in a window item of this canvas}
+
+test window-itemcget "itemcget reports window item options" -body {
+    set id [.s create window 10 10 -window .b9 -anchor ne -width 120 -height 33]
+    list [.s itemcget $id -window] [.s itemcget $id -anchor] [.s itemcget $id -width] [.s itemcget $id -height]
+} -result {.b9 ne 120 33}
+
+test window-anchor "anchor changes the bbox placement" -body {
+    set id [.s create window 100 100 -window .b10 -width 100 -height 40 -anchor nw]
+    set nw [.s bbox $id]
+    .s itemconfigure $id -anchor se
+    set se [.s bbox $id]
+    list $nw $se
+} -result {{100 100 200 140} {0 60 100 100}}
+
+test window-report "itemconfigure without options reports the window keys" -body {
+    set id [.s create window 10 10 -window .b11 -width 100 -height 40]
+    set report [.s itemconfigure $id]
+    list [dict exists $report -window] [dict exists $report -width] [dict exists $report -height] [dict exists $report -anchor] [dict get $report -window]
+} -result {1 1 1 1 .b11}
+
+test window-find "find overlapping/enclosed see window items" -body {
+    tkd2dcanvas .findbox -width 320 -height 240 -background white
+    pack .findbox
+    button .fb1 -text fb
+    set id [.findbox create window 100 100 -window .fb1 -width 100 -height 40]
+    set inside [.findbox find enclosed 0 0 1000 1000]
+    set over [.findbox find overlapping 60 90 70 100]
+    destroy .fb1 .findbox
+    list [expr {$id in $inside}] [expr {$id in $over}]
+} -result {1 1}
+
+test window-scale-natural "scale keeps -width 0 (natural) while scaling the point" -body {
+    set id [.s create window 50 50 -window .b12]
+    .s scale $id 0 0 2.0 2.0
+    list [.s itemcget $id -width] [expr {[.s bbox $id] != {}}]
+} -result {0 1}
+
+test window-scroll-move "embedded window position follows the view origin on scroll" -body {
+    set id [.s create window 100 100 -window .b13 -width 80 -height 30]
+    update
+    set before_x [winfo x .b13]
+    set before_y [winfo y .b13]
+    .s xview scroll 1 units
+    .s yview scroll 1 units
+    set after_x [winfo x .b13]
+    set after_y [winfo y .b13]
+    .s xview scroll -1 units
+    .s yview scroll -1 units
+    list [expr {$before_x - $after_x}] [expr {$before_y - $after_y}]
+} -result {50 50}
+
+test window-scroll-bbox-stable "bbox is in canvas coordinates and does not change on scroll" -body {
+    set id [.s create window 100 100 -window .b14 -width 100 -height 40]
+    set before [.s bbox $id]
+    .s yview scroll 1 units
+    set after [.s bbox $id]
+    .s yview scroll -1 units
+    list $before $after
+} -result {{50 80 150 120} {50 80 150 120}}
+
+test window-width-height-reconfigure "-width/-height reconfigure resizes the embedded window" -body {
+    set id [.s create window 150 150 -window .b15 -width 60 -height 30]
+    update
+    set w1 [winfo width .b15]
+    set h1 [winfo height .b15]
+    .s itemconfigure $id -width 200 -height 77
+    update
+    list $w1 $h1 [winfo width .b15] [winfo height .b15]
+} -result {60 30 200 77}
+
+if {[info exists ::tkg_all_in_progress]} {
+    # the runner drives the files; Tk objects are left to the interp teardown
+} else {
+    destroy .s .b1 .b2 .b3 .b4 .b5 .b6 .b7 .b8 .b9 .b10 .b11 .b12 .b13 .b14 .b15
+    tcltest::cleanupTests
+}
