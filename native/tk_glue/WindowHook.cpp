@@ -39,15 +39,16 @@ LRESULT CALLBACK HookedWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
 
     switch (msg) {
         case WM_PAINT: {
-            // The damaged area (in window coordinates) is captured before Tk
-            // validates the update region.
-            RECT damaged{};
-            const bool haveDamaged = GetUpdateRect(hwnd, &damaged, FALSE) != 0;
+            // The exact damaged region (window coordinates) is captured
+            // before Tk validates the update region. Keeping it as a rect
+            // list matters for a scroll frame, which exposes two disjoint
+            // strips: their bounding box would be almost the whole window.
+            const std::vector<RECT> damaged = Win32Surface::UpdateRegion(hwnd);
 
             // Let Tk paint the widget's own background first.
             LRESULT result = CallWindowProcW(hook.original, hwnd, msg, wParam, lParam);
 
-            if (haveDamaged) {
+            if (!damaged.empty()) {
                 HDC dc = GetDC(hwnd);
                 if (dc) {
                     for (CanvasWidget* canvas : hook.canvases) {

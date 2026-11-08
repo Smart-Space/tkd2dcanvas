@@ -23,6 +23,9 @@ public:
     // (destX, destY) is the position of the back buffer in the target DC.
     bool Present(HDC target, const RECT* rect = nullptr, int destX = 0, int destY = 0) const;
 
+    // Scrolls the buffer content in place by (dx, dy) pixels
+    bool ScrollContent(int dx, int dy);
+
     void Reset();
 
 private:

@@ -36,9 +36,11 @@ public:
 
     // Binds (creates if needed) a DC render target on the given HDC and opens
     // a drawing frame. Call via Detach() to end the frame. `width`/`height`
-    // are the pixel size of the DC surface (required by BindDC).
+    // are the pixel size of the DC surface (required by BindDC). The target
+    // keeps its binding between frames when the DC and size are unchanged.
     bool AttachToHdc(void* hdc, int width, int height);
     void Detach();
+    void ResetBinding();
 
 private:
     void EnsureBrush();

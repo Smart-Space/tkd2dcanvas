@@ -22,6 +22,9 @@ struct D2DRendererImpl {
     int width = 0;
     int height = 0;
     bool frameOpen = false;
+    HDC boundDc = nullptr;  // HDC/rect the render target is currently bound to
+    int boundWidth = 0;
+    int boundHeight = 0;
     int clipDepth = 0;  // number of active axis-aligned clips (nested = intersected)
     std::vector<D2D1_MATRIX_3X2_F> transformStack;  // world transforms saved by pushTranslate
 };
@@ -80,10 +83,16 @@ bool D2DRenderer::AttachToHdc(void* hdc, int width, int height) {
     impl_->width = width;
     impl_->height = height;
 
-    const RECT rc{0, 0, width, height};
-    HRESULT hr = impl_->rt->BindDC(dc, &rc);
-    if (FAILED(hr)) {
-        return false;
+    if (impl_->boundDc != dc || impl_->boundWidth != width ||
+        impl_->boundHeight != height) {
+        const RECT rc{0, 0, width, height};
+        HRESULT hr = impl_->rt->BindDC(dc, &rc);
+        if (FAILED(hr)) {
+            return false;
+        }
+        impl_->boundDc = dc;
+        impl_->boundWidth = width;
+        impl_->boundHeight = height;
     }
 
     EnsureBrush();
@@ -103,6 +112,9 @@ void D2DRenderer::Detach() {
             // Device lost: drop the render target; next AttachToHdc recreates it.
             impl_->brush.Reset();
             impl_->rt.Reset();
+            impl_->boundDc = nullptr;
+            impl_->boundWidth = 0;
+            impl_->boundHeight = 0;
         }
     }
 
@@ -112,6 +124,19 @@ void D2DRenderer::Detach() {
         --impl_->clipDepth;
     }
     impl_->transformStack.clear();
+}
+
+void D2DRenderer::ResetBinding() {
+    if (impl_->frameOpen && impl_->rt) {
+        if (impl_->rt->EndDraw() == D2DERR_RECREATE_TARGET) {
+            impl_->brush.Reset();
+            impl_->rt.Reset();
+        }
+        impl_->frameOpen = false;
+    }
+    impl_->boundDc = nullptr;
+    impl_->boundWidth = 0;
+    impl_->boundHeight = 0;
 }
 
 void D2DRenderer::EnsureBrush() {

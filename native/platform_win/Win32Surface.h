@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <functional>
 #include <memory>
+#include <vector>
 
 #include "tkd2dcanvas/BBox.h"
 #include "tkd2dcanvas/Color.h"
@@ -16,7 +17,8 @@ class D2DRenderer;
 
 class Win32Surface {
 public:
-    using Painter = std::function<void(D2DRenderer&)>;
+    // Paints one damaged rectangle (window coordinates)
+    using Painter = std::function<void(D2DRenderer&, const RECT&)>;
 
     Win32Surface();
     ~Win32Surface();
@@ -36,9 +38,10 @@ public:
     void Invalidate(const BBox& box);   // invalidate a canvas-unit rect
     void InvalidateAll();
 
-    // Paint handler: clears background, runs `painter` for the D2D drawing pass
-    // and blits the result to `hdc` at (destX, destY).
-    void Paint(HDC hdc, const RECT* invalidRect, const Painter& painter, int destX = 0, int destY = 0);
+    static std::vector<RECT> UpdateRegion(HWND hwnd);
+    bool ScrollContent(int dx, int dy);
+
+    void Paint(HDC hdc, const std::vector<RECT>& damaged, const Painter& painter, int destX = 0, int destY = 0);
 
 private:
     HWND hwnd_ = nullptr;

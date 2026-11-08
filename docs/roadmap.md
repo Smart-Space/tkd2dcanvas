@@ -62,6 +62,7 @@
   - `-confine`/`-scrollregion`/`-*scrollincrement`/resize 都会对当前 origin 重新 round + confine（与 Tk 的 ConfigureNotify 一致）
   - 顺带实现 `scan mark` / `scan dragto ?gain?`（Tk canvas 滚动命令的其余部分）
   - 顺带修复了隐患：创建期 option 校验失败的 widget（如 `-scrollregion` 解析失败）没有走完整析构路径，pending idle 回调会指向已释放对象，统一改为 `AbortCreate`
+- [x] 滚动帧增量重绘：`ScrollWindowEx` + 后备缓冲 `BitBlt` 位移，只重画新暴露条带；M10 落地时必须重新验证`SW_SCROLLCHILDREN` 与子窗口跟随
 
 ## 阶段 7：Python 包装（M8）
 

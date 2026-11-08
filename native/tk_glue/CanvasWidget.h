@@ -99,10 +99,17 @@ struct CanvasWidget {
     // Same, limited to a canvas-unit rectangle
     void Invalidate(const BBox& box);
 
-    // Draws the widget with Direct2D into `dc` (a DC of the top-level window).
-    // `damaged` is the area that has to be repainted (in top-level client
-    // coordinates); the widget is only painted when the two overlap.
-    void Paint(HDC dc, const RECT& damaged);
+    // Draws the widget with Direct2D into `dc` (a DC of the widget window).
+    // `damaged` are the rectangles that have to be repainted (window
+    // coordinates); only the parts that touch the widget are painted.
+    void Paint(HDC dc, const std::vector<RECT>& damaged);
+
+    // Called after the view origin changed from (oldX, oldY) to its current
+    // value. When the shift is an integral number of pixels that fits inside
+    // the window, the window pixels and the retained back buffer are scrolled
+    // and only the newly exposed strips (plus any damage that was pending
+    // before the change) are invalidated.
+    void RepaintAfterScroll(double oldX, double oldY);
 
     // Picks the item under the given (widget local) coordinates and makes it
     // the "current" item. The hit test itself lives in the C++ core.

@@ -1,9 +1,11 @@
 ﻿#include "CanvasWidget.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "CanvasOptions.h"
@@ -334,20 +336,32 @@ void CanvasWidget::ForgetVirtualBinding(ClientData object, const std::string& se
     if (it->second.empty()) virtualBindings.erase(it);
 }
 
-void CanvasWidget::Paint(HDC dc, const RECT& damaged) {
+void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
     if (!dc || !mapped) return;
     if (pixelWidth <= 0 || pixelHeight <= 0) return;
 
-    // Only paint when the damaged area touches the widget.
-    RECT bounds{0, 0, pixelWidth, pixelHeight};
-    RECT overlap{};
-    if (!IntersectRect(&overlap, &bounds, &damaged)) return;
+    // Only paint the parts of the damage that touch the widget.
+    const RECT bounds{0, 0, pixelWidth, pixelHeight};
+    std::vector<RECT> rects;
+    rects.reserve(damaged.size());
+    for (const RECT& rect : damaged) {
+        RECT overlap{};
+        if (IntersectRect(&overlap, &bounds, &rect)) rects.push_back(overlap);
+    }
+    if (rects.empty()) return;
+
+    std::vector<std::pair<CanvasItem*, BBox>> items;
+    items.reserve(model.Size());
+    for (CanvasItem* item : model.ItemsInZOrder()) {
+        if (!item) continue;
+        items.emplace_back(item, item->GetBBox());
+    }
 
     // The clip lives in Win32Surface::Paint (background fill + item draws are
-    // clipped in D2D), and the same rect gates the BitBlt to the target DC,
-    // so a small change repaints only that region.
-    surface.Paint(dc, &overlap,
-                  [this, &overlap](D2DRenderer& renderer) {
+    // clipped in D2D), and the same rectangles gate the BitBlt to the target
+    // DC, so a small change repaints only that region.
+    surface.Paint(dc, rects,
+                  [this, &items](D2DRenderer& renderer, const RECT& overlap) {
                       const CanvasView& view = model.View();
                       const double dx = view.XOffset();
                       const double dy = view.YOffset();
@@ -357,14 +371,96 @@ void CanvasWidget::Paint(HDC dc, const RECT& damaged) {
                                          overlap.top + dy - kCullSlack,
                                          overlap.right + dx + kCullSlack,
                                          overlap.bottom + dy + kCullSlack};
-                      for (CanvasItem* item : model.ItemsInZOrder()) {
-                          if (!item) continue;
-                          const BBox box = item->GetBBox();
-                          if (box.IsValid() && !box.Intersects(visible)) continue;
-                          item->Draw(renderer);
+                      for (const auto& entry : items) {
+                          if (entry.second.IsValid() &&
+                              !entry.second.Intersects(visible)) {
+                              continue;
+                          }
+                          entry.first->Draw(renderer);
                       }
                       renderer.popTranslate();
                   });
+}
+
+void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
+    if (!hwnd) return;
+
+    const CanvasView& view = model.View();
+    const double newX = view.XOffset();
+    const double newY = view.YOffset();
+    const double deltaX = newX - oldX;
+    const double deltaY = newY - oldY;
+
+    if (deltaX == 0.0 && deltaY == 0.0) return;
+
+    const double roundedX = std::round(deltaX);
+    const double roundedY = std::round(deltaY);
+    if (deltaX != roundedX || deltaY != roundedY) {
+        Invalidate();
+        return;
+    }
+
+    const int dx = static_cast<int>(roundedX);
+    const int dy = static_cast<int>(roundedY);
+    if ((dx == 0 && dy == 0) ||
+        std::abs(dx) >= pixelWidth || std::abs(dy) >= pixelHeight) {
+        Invalidate();
+        return;
+    }
+
+    const std::vector<RECT> pending = Win32Surface::UpdateRegion(hwnd);
+
+    long long pendingArea = 0;
+    for (const RECT& rect : pending) {
+        const long long w = static_cast<long long>(rect.right) - rect.left;
+        const long long h = static_cast<long long>(rect.bottom) - rect.top;
+        if (w > 0 && h > 0) pendingArea += w * h;
+    }
+    const long long windowArea = static_cast<long long>(pixelWidth) * static_cast<long long>(pixelHeight);
+    if (windowArea <= 0 || pendingArea * 2 >= windowArea) {
+        Invalidate();
+        return;
+    }
+
+    const int shiftX = -dx;
+    const int shiftY = -dy;
+
+    if (!surface.ScrollContent(shiftX, shiftY)) {
+        Invalidate();
+        return;
+    }
+
+    if (ScrollWindowEx(hwnd, shiftX, shiftY, nullptr, nullptr, nullptr, nullptr,
+                       SW_SCROLLCHILDREN | SW_INVALIDATE) == ERROR) {
+        Invalidate();
+        return;
+    }
+
+    // Repaint only the newly exposed strips. Each strip reaches one pixel
+    // into the retained area so antialiased edges along the seam match the
+    // shifted pixels.
+    constexpr int kSeam = 1;
+    if (shiftX < 0) {
+        // Content moved left: the right edge is new.
+        RECT strip{std::max(0, pixelWidth + shiftX - kSeam), 0, pixelWidth, pixelHeight};
+        InvalidateRect(hwnd, &strip, FALSE);
+    } else if (shiftX > 0) {
+        RECT strip{0, 0, std::min(pixelWidth, shiftX + kSeam), pixelHeight};
+        InvalidateRect(hwnd, &strip, FALSE);
+    }
+    if (shiftY < 0) {
+        // Content moved up: the bottom edge is new.
+        RECT strip{0, std::max(0, pixelHeight + shiftY - kSeam), pixelWidth, pixelHeight};
+        InvalidateRect(hwnd, &strip, FALSE);
+    } else if (shiftY > 0) {
+        RECT strip{0, 0, pixelWidth, std::min(pixelHeight, shiftY + kSeam)};
+        InvalidateRect(hwnd, &strip, FALSE);
+    }
+
+    for (const RECT& rect : pending) {
+        const BBox box{rect.left + oldX, rect.top + oldY, rect.right - 1 + oldX, rect.bottom - 1 + oldY};
+        Invalidate(box);
+    }
 }
 
 }  // namespace tkd2dcanvas

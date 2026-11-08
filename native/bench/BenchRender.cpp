@@ -8,6 +8,7 @@
 // or see docs/performance.md for a standalone cl command.
 
 #include <windows.h>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -33,6 +34,7 @@ struct BenchItem {
     std::vector<Point> geometry;
     Color fill;
     Color outline;
+    BBox box;
 };
 
 std::vector<BenchItem> MakeItems(int count, std::uint32_t seed) {
@@ -72,6 +74,14 @@ std::vector<BenchItem> MakeItems(int count, std::uint32_t seed) {
                 item.geometry.push_back({x, y});
             }
         }
+
+        item.box = BBox{1.0e300, 1.0e300, -1.0e300, -1.0e300};
+        for (const Point& point : item.geometry) {
+            item.box.left = std::min(item.box.left, point.x);
+            item.box.top = std::min(item.box.top, point.y);
+            item.box.right = std::max(item.box.right, point.x);
+            item.box.bottom = std::max(item.box.bottom, point.y);
+        }
         items.push_back(std::move(item));
     }
     return items;
@@ -84,22 +94,41 @@ Path AsPath(const BenchItem& item) {
     return p;
 }
 
-void DrawItems(D2DRenderer& renderer, const std::vector<BenchItem>& items) {
-    for (const auto& item : items) {
-        const Path path = AsPath(item);
-        if (item.kind == 2) {
-            PenStyle pen;
-            pen.color = item.outline;
-            pen.width = 2.0;
-            renderer.drawLine(path, pen);
-        } else {
-            BrushStyle brush{item.fill};
-            PenStyle pen;
-            pen.color = item.outline;
-            pen.width = 1.0;
-            renderer.drawPath(path, pen, &brush);
-        }
+void DrawOne(D2DRenderer& renderer, const BenchItem& item) {
+    const Path path = AsPath(item);
+    if (item.kind == 2) {
+        PenStyle pen;
+        pen.color = item.outline;
+        pen.width = 2.0;
+        renderer.drawLine(path, pen);
+    } else {
+        BrushStyle brush{item.fill};
+        PenStyle pen;
+        pen.color = item.outline;
+        pen.width = 1.0;
+        renderer.drawPath(path, pen, &brush);
     }
+}
+
+void DrawItems(D2DRenderer& renderer, const std::vector<BenchItem>& items) {
+    for (const auto& item : items) DrawOne(renderer, item);
+}
+
+// The culling CanvasWidget::Paint does for a single damaged rectangle.
+void DrawItemsCulled(D2DRenderer& renderer, const std::vector<BenchItem>& items,
+                     const BBox& visible) {
+    for (const auto& item : items) {
+        if (item.box.IsValid() && !item.box.Intersects(visible)) continue;
+        DrawOne(renderer, item);
+    }
+}
+
+void FillRect(D2DRenderer& renderer, const BBox& box, const Color& color) {
+    Path path;
+    path.closed = true;
+    path.points = {{box.left, box.top}, {box.right, box.top},
+                   {box.right, box.bottom}, {box.left, box.bottom}};
+    renderer.fillPath(path, BrushStyle{color});
 }
 
 double NowMs() {
@@ -178,6 +207,19 @@ int main() {
         std::printf("clear-only (fresh renderer): %.2f ms\n", NowMs() - t0);
     }
 
+    // Reference: frame lifecycle alone (BindDC + BeginDraw/EndDraw).
+    {
+        D2DRenderer renderer;
+        double total = 0.0;
+        for (int rep = 0; rep < kReps; ++rep) {
+            const double t0 = NowMs();
+            renderer.AttachToHdc(mem, kWidth, kHeight);
+            renderer.Detach();
+            total += NowMs() - t0;
+        }
+        std::printf("attach/detach only (persistent renderer): %.2f ms\n", total / kReps);
+    }
+
     // Steady state: persistent renderer reused across frames (the real
     // Win32Surface pattern): only BindDC + Begin/EndDraw per frame.
     std::printf("persistent renderer (same DC):\n");
@@ -201,6 +243,55 @@ int main() {
         renderer.Detach();
         const double avg = total / kReps;
         std::printf("%-8d %12.2f %12.2f\n", count, avg, avg * 1000.0 / count);
+    }
+
+    // Scroll frame: full window repaint vs only the newly exposed 20 px
+    // strip (the path used by CanvasWidget::RepaintAfterScroll). Both frames
+    // draw with origin shifted by 20 canvas units.
+    constexpr int kStrip = 20;
+    const BBox band{0.0, 380.0, static_cast<double>(kWidth), 380.0 + kStrip};
+    std::printf("\nscroll frame (origin shifted by %d, %d px strip):\n", kStrip, kStrip);
+    std::printf("%-8s %12s %12s %8s\n", "items", "full ms", "strip ms", "ratio");
+    for (const int count : {100, 500, 1000}) {
+        const auto items = MakeItems(count, 42);
+        D2DRenderer renderer;
+        renderer.AttachToHdc(mem, kWidth, kHeight);
+
+        // Warm up the rasterizer / caches on this render target.
+        renderer.clear(Color{255, 255, 255});
+        DrawItems(renderer, items);
+        renderer.Detach();
+
+        double fullTotal = 0.0;
+        double stripTotal = 0.0;
+        for (int rep = 0; rep < kReps; ++rep) {
+            const double fullStart = NowMs();
+            renderer.AttachToHdc(mem, kWidth, kHeight);
+            renderer.clear(Color{255, 255, 255});
+            renderer.pushTranslate(0.0, -static_cast<double>(kStrip));
+            DrawItems(renderer, items);
+            renderer.popTranslate();
+            renderer.Detach();
+            fullTotal += NowMs() - fullStart;
+
+            const double stripStart = NowMs();
+            renderer.AttachToHdc(mem, kWidth, kHeight);
+            renderer.pushClip(band);
+            FillRect(renderer, band, Color{255, 255, 255});
+            renderer.pushTranslate(0.0, -static_cast<double>(kStrip));
+            const BBox visible{band.left, band.top + kStrip, band.right, band.bottom + kStrip};
+            DrawItemsCulled(renderer, items, visible);
+            renderer.popTranslate();
+            renderer.popClip();
+            renderer.Detach();
+            stripTotal += NowMs() - stripStart;
+        }
+
+        renderer.Detach();
+        const double fullAvg = fullTotal / kReps;
+        const double stripAvg = stripTotal / kReps;
+        std::printf("%-8d %12.2f %12.2f %7.1f%%\n", count, fullAvg, stripAvg,
+                    fullAvg > 0.0 ? 100.0 * stripAvg / fullAvg : 0.0);
     }
 
     SelectObject(mem, oldBitmap);

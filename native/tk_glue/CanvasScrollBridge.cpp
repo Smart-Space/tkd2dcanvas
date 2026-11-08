@@ -52,6 +52,10 @@ int HandleScrollCommand(CanvasWidget& widget, bool horizontal,
     double fraction = 0.0;
     int count = 0;
     const int type = Tk_GetScrollInfoObj(interp, objc, objv, &fraction, &count);
+
+    const double oldX = view.XOffset();
+    const double oldY = view.YOffset();
+
     switch (type) {
         case TK_SCROLL_MOVETO:
             view.MoveTo(horizontal, fraction);
@@ -66,8 +70,9 @@ int HandleScrollCommand(CanvasWidget& widget, bool horizontal,
             return TCL_ERROR;
     }
 
-    // The view changed: a full redraw plus (deferred) scrollbar notification.
-    widget.Invalidate();
+    // The view changed: shift the retained pixels and redraw the strips plus
+    // (deferred) scrollbar notification.
+    widget.RepaintAfterScroll(oldX, oldY);
     RequestScrollbarUpdate(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
@@ -148,8 +153,10 @@ int HandleScanCommand(CanvasWidget& widget, int objc, Tcl_Obj* const objv[]) {
 
     const double newX = widget.scanOriginX - gain * (x - widget.scanMarkX);
     const double newY = widget.scanOriginY - gain * (y - widget.scanMarkY);
+    const double oldX = widget.model.View().XOffset();
+    const double oldY = widget.model.View().YOffset();
     widget.model.View().SetOrigin(newX, newY);
-    widget.Invalidate();
+    widget.RepaintAfterScroll(oldX, oldY);
     RequestScrollbarUpdate(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;

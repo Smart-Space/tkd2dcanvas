@@ -1,5 +1,7 @@
 #include "Win32DoubleBuffer.h"
 
+#include <cstdlib>
+
 bool Win32DoubleBuffer::Prepare(HDC target, int width, int height) {
     if (!target || width <= 0 || height <= 0) return false;
 
@@ -43,6 +45,21 @@ bool Win32DoubleBuffer::Present(HDC target, const RECT* rect, int destX, int des
 
     return BitBlt(target, destX + r.left, destY + r.top, w, h,
                   memDc_, r.left, r.top, SRCCOPY) == TRUE;
+}
+
+bool Win32DoubleBuffer::ScrollContent(int dx, int dy) {
+    if (!memDc_ || width_ <= 0 || height_ <= 0) return false;
+    if (dx == 0 && dy == 0) return true;
+    if (std::abs(dx) >= width_ || std::abs(dy) >= height_) return false;
+
+    const int srcX = dx > 0 ? 0 : -dx;
+    const int dstX = dx > 0 ? dx : 0;
+    const int srcY = dy > 0 ? 0 : -dy;
+    const int dstY = dy > 0 ? dy : 0;
+    const int w = width_ - std::abs(dx);
+    const int h = height_ - std::abs(dy);
+
+    return BitBlt(memDc_, dstX, dstY, w, h, memDc_, srcX, srcY, SRCCOPY) == TRUE;
 }
 
 void Win32DoubleBuffer::Reset() {
