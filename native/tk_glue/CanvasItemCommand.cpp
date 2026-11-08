@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <climits>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -53,12 +54,12 @@ void InvalidatePadded(CanvasWidget& widget, const BBox& box, double width) {
 }
 
 void InvalidateItem(CanvasWidget& widget, const CanvasItem& item) {
-    InvalidatePadded(widget, item.GetBBox(), item.Style().width);
+    InvalidatePadded(widget, item.DamageBBox(), item.Style().width);
 }
 
 // Invalidates around an item using `padWidth` as the stroke width.
 void InvalidateItem(CanvasWidget& widget, const CanvasItem& item, double padWidth) {
-    InvalidatePadded(widget, item.GetBBox(), padWidth);
+    InvalidatePadded(widget, item.DamageBBox(), padWidth);
 }
 
 // Resolves Tk-style item specs (item id / "all" / tag name) in
@@ -244,7 +245,9 @@ int CoordsCmd(CanvasWidget& widget, Tcl_Interp* interp,
         return TCL_ERROR;
     }
     if (coords.size() < 2 || coords.size() % 2 != 0) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("expected an even number of coordinates", -1));
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+            "wrong # coordinates: expected an even number, got %d",
+            static_cast<int>(coords.size())));
         return TCL_ERROR;
     }
 
@@ -477,8 +480,12 @@ int BBoxCmd(CanvasWidget& widget, Tcl_Interp* interp,
         return TCL_OK;
     }
 
-    const std::string text = FormatCoordsList({unionBox.left, unionBox.top, unionBox.right, unionBox.bottom});
-    Tcl_SetObjResult(interp, Tcl_NewStringObj(text.c_str(), -1));
+    Tcl_Obj* list = Tcl_NewObj();
+    const double corners[4] = {unionBox.left, unionBox.top, unionBox.right, unionBox.bottom};
+    for (double corner : corners) {
+        Tcl_ListObjAppendElement(nullptr, list, Tcl_NewIntObj(static_cast<int>(std::lround(corner))));
+    }
+    Tcl_SetObjResult(interp, list);
     return TCL_OK;
 }
 
@@ -602,6 +609,41 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
     if ((name == "window" || name == "height") && item->Type() != "window") {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
         return TCL_ERROR;
+    }
+    // Tk only accepts the options of the item's own type: querying -text on
+    // a rectangle (and the like) is an error there, not an empty value.
+    if ((name == "text" || name == "font" || name == "justify" || name == "wrap" ||
+         name == "angle") && item->Type() != "text") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    if (name == "image" && item->Type() != "image") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    if ((name == "bitmap" || name == "foreground" || name == "background") &&
+        item->Type() != "bitmap") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    if (name == "anchor" && item->Type() != "text" && item->Type() != "image" &&
+        item->Type() != "bitmap" && item->Type() != "window") {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
+        return TCL_ERROR;
+    }
+    // -fill and -outline follow the same rules as itemconfigure.
+    {
+        const std::string type = item->Type();
+        const bool isShape = type == "rectangle" || type == "oval" ||
+                             type == "line" || type == "polygon" || type == "arc";
+        if (name == "fill" && !(isShape || type == "text")) {
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), type.c_str()));
+            return TCL_ERROR;
+        }
+        if (name == "outline" && !isShape) {
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), type.c_str()));
+            return TCL_ERROR;
+        }
     }
 
     Tcl_SetObjResult(interp, Tcl_NewStringObj(ItemOptionValueString(*item, name.c_str()).c_str(), -1));

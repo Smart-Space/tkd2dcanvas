@@ -200,17 +200,43 @@ D2D1::Matrix3x2F Compose3x2(const D2D1_MATRIX_3X2_F& A,
 bool StrokePixelOffset(const Path& path, double width, double& dx, double& dy) {
     dx = 0.0;
     dy = 0.0;
-    if (path.points.size() < 3 || !path.closed || width <= 0.0) return false;
+    if (path.points.size() < 2 || width <= 0.0) return false;
 
     const double rounded = std::floor(width + 0.5);
     if (std::abs(rounded - width) > 1e-9) return false;  // fractional width
     if (std::fmod(rounded, 2.0) == 0.0) return false;    // even width: edges are on the grid
 
+    auto integral = [](double value) {
+        return std::abs(value - std::round(value)) <= 1e-9;
+    };
+
+    if (!path.closed) {
+        // Only a single straight segment can be moved onto the pixel grid.
+        if (path.points.size() != 2) return false;
+        const Point& a = path.points[0];
+        const Point& b = path.points[1];
+        if (!integral(a.x) || !integral(a.y) || !integral(b.x) || !integral(b.y)) {
+            return false;
+        }
+        if (a.y == b.y) {  // horizontal: shift perpendicular to the line
+            dx = 0.0;
+            dy = 0.5;
+            return true;
+        }
+        if (a.x == b.x) {  // vertical
+            dx = 0.5;
+            dy = 0.0;
+            return true;
+        }
+        return false;  // diagonal
+    }
+
+    if (path.points.size() < 3) return false;
+
     const std::size_t n = path.points.size();
     for (std::size_t i = 0; i < n; ++i) {
         const Point& p = path.points[i];
-        if (std::abs(p.x - std::round(p.x)) > 1e-9) return false;
-        if (std::abs(p.y - std::round(p.y)) > 1e-9) return false;
+        if (!integral(p.x) || !integral(p.y)) return false;
         const Point& next = path.points[(i + 1) % n];
         if (p.x != next.x && p.y != next.y) return false;  // diagonal edge
     }

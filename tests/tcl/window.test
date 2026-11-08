@@ -66,7 +66,7 @@ test window-tags "window items support tags" -body {
     .s gettags $id
 } -result {grp}
 
-test window-hidden-state "-state hidden unmaps the embedded window and empties the bbox" -body {
+test window-hidden-state "-state hidden unmaps the embedded window and shrinks the bbox" -body {
     set id [.s create window 60 60 -window .b7 -width 50 -height 20]
     update
     set before [winfo ismapped .b7]
@@ -76,7 +76,7 @@ test window-hidden-state "-state hidden unmaps the embedded window and empties t
     .s itemconfigure $id -state normal
     set back [winfo ismapped .b7]
     list $before $after $box $back
-} -result {1 0 {} 1}
+} -result {1 0 {60 60 61 61} 1}
 
 test window-delete "delete unmaps the embedded window" -body {
     set id [.s create window 70 70 -window .b8 -width 50 -height 20]

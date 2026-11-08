@@ -188,7 +188,8 @@ def test_hidden_state_unmaps_and_reshows(root, canvas):
     canvas.itemconfigure(item, state="hidden")
     root.update()
     assert btn.winfo_ismapped() == 0
-    assert canvas.bbox(item) is None
+    # Tk reports a 1x1 box at the item's position for a hidden window item.
+    assert canvas.bbox(item) == (30.0, 30.0, 31.0, 31.0)
     canvas.itemconfigure(item, state="normal")
     root.update()
     assert btn.winfo_ismapped() == 1

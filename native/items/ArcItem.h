@@ -22,6 +22,7 @@ public:
     ArcItem(Id id, double x1, double y1, double x2, double y2, double startDeg = 0.0, double extentDeg = 90.0);
 
     BBox GetBBox() const override;
+    BBox DamageBBox() const override;
     void Translate(double dx, double dy) override;
     double DistanceTo(Point p) const override;
     int AreaOverlap(const double rect[4]) const override;
@@ -49,6 +50,11 @@ private:
     ArcStyle style_ = ArcStyle::PieSlice;
 
     std::vector<Point> SampleArc() const;
+
+    // True when the arc is so small that the native canvas draws the whole
+    // ellipse instead (Tk on Windows draws the arc through GDI, which rounds
+    // the arc's end points to whole pixels).
+    bool DegeneratesToFullEllipse() const;
 
     double ArcDistanceTo(Point p) const;
 };

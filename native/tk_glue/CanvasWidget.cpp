@@ -432,7 +432,7 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
     items.reserve(model.Size());
     for (CanvasItem* item : model.ItemsInZOrder()) {
         if (!item) continue;
-        items.emplace_back(item, item->GetBBox());
+        items.emplace_back(item, item->DamageBBox());
     }
 
     // The clip lives in Win32Surface::Paint (background fill + item draws are

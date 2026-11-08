@@ -203,8 +203,16 @@ BBox ArcItem::GetBBox() const {
     return BBox{double(x1 - pad), double(y1 - pad), double(x2 + pad), double(y2 + pad)};
 }
 
-int ArcItem::AreaOverlap(const double rect[4]) const {
-    // Tk's arc areaProc (ArcToArea in tkCanvArc.c).
+BBox ArcItem::DamageBBox() const {
+    if (!DegeneratesToFullEllipse()) return GetBBox();
+    const double width = std::max(x1_, x2_) - std::min(x1_, x2_);
+    const double height = std::max(y1_, y2_) - std::min(y1_, y2_);
+    double pad = Style().width * 0.5 + 2.0;
+    return BBox{std::min(x1_, x2_) - pad, std::min(y1_, y2_) - pad,
+                std::max(x1_, x2_) + pad, std::max(y1_, y2_) + pad};
+}
+
+int ArcItem::AreaOverlap(const double rect[4]) const {    // Tk's arc areaProc (ArcToArea in tkCanvArc.c).
     const ArcGeometry g = ComputeArcGeometry(x1_, y1_, x2_, y2_, start_, extent_);
     double width = Style().width;
     const bool hasGC = TkHasOutlineGC(Style());
@@ -370,6 +378,27 @@ std::vector<Point> ArcItem::SampleArc() const {
     return points;
 }
 
+bool ArcItem::DegeneratesToFullEllipse() const {
+    // Tk on Windows draws the arc with GDI's Arc(), which rounds the arc's
+    // two end points to whole pixels.  When both points end up on the same
+    // pixel, GDI draws the *complete* ellipse instead of the (sub-pixel)
+    // arc.  The rule is reproduced here so that such an arc looks exactly
+    // like it does on the native canvas -- TinUI's wait bar draws its ring
+    // with "extent 361", which relies on it.
+    const double width = x2_ - x1_;
+    const double height = y2_ - y1_;
+    const double cx = (x1_ + x2_) * 0.5;
+    const double cy = (y1_ + y2_) * 0.5;
+
+    const double a1 = start_ * kDegToRad;
+    const double a2 = (start_ + extent_) * kDegToRad;
+    const int xStart = static_cast<int>(cx + std::cos(a1) * width * 0.5 + 0.5);
+    const int yStart = static_cast<int>(cy - std::sin(a1) * height * 0.5 + 0.5);
+    const int xEnd = static_cast<int>(cx + std::cos(a2) * width * 0.5 + 0.5);
+    const int yEnd = static_cast<int>(cy - std::sin(a2) * height * 0.5 + 0.5);
+    return xStart == xEnd && yStart == yEnd;
+}
+
 double ArcItem::ArcDistanceTo(Point p) const {
     const ArcGeometry g = ComputeArcGeometry(x1_, y1_, x2_, y2_, start_, extent_);
     double width = Style().width;
@@ -467,6 +496,18 @@ void ArcItem::Draw(Renderer& renderer) const {
 
     std::vector<Point> arc = SampleArc();
     if (arc.size() < 2) return;
+    if (DegeneratesToFullEllipse()) {
+        const double cx = (left + right) * 0.5, cy = (top + bottom) * 0.5;
+        const double rx = (right - left) * 0.5, ry = (bottom - top) * 0.5;
+        const int segments = 180;
+        arc.clear();
+        arc.reserve(static_cast<std::size_t>(segments) + 1);
+        for (int i = 0; i <= segments; ++i) {
+            const double angle = 2.0 * 3.14159265358979323846 *
+                                 static_cast<double>(i) / segments;
+            arc.push_back(Point{cx + rx * std::cos(angle), cy - ry * std::sin(angle)});
+        }
+    }
 
     const auto fill = ItemStateFill(Style());
     const auto& outline = Style().outline;

@@ -110,7 +110,7 @@ test tags-raise-above "raise places the items above the given one" -body {
     set a [.c create rectangle 0 0 10 10]
     set b [.c create rectangle 20 20 30 30]
     .c raise $b $a
-    expr {[.c find all] eq "$b $a"}
+    expr {[.c find all] eq "$a $b"}
 } -result 1
 
 test tags-lower-below "lower places the items below the given one" -body {

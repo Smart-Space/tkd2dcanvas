@@ -27,6 +27,12 @@ public:
     virtual BBox GetBBox() const = 0;
     virtual void Translate(double dx, double dy) = 0;
 
+    // The area the item paints into.  It is usually the bounding box, but an
+    // item may paint outside of it (an arc that degenerates into a full
+    // ellipse is drawn over the whole ellipse while its bounding box still
+    // covers the tiny arc).  The area is used for the repaint bookkeeping.
+    virtual BBox DamageBBox() const { return GetBBox(); }
+
     virtual void Scale(double xOrigin, double yOrigin, double xScale, double yScale);
     virtual bool SupportsInsertionCursor() const { return false; }
 

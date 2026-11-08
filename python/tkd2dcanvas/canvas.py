@@ -32,12 +32,13 @@ def _parse_id_list(text: str) -> tuple[int, ...]:
     return tuple(ids)
 
 
-def _parse_bbox(text: str) -> Optional[Tuple[float, float, float, float]]:
+def _parse_bbox(text: str) -> Optional[Tuple[int, int, int, int]]:
     parts = text.split()
     if len(parts) != 4:
         return None
     try:
-        return (float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]))
+        return (int(parts[0]), int(parts[1]),
+                int(parts[2]), int(parts[3]))
     except ValueError:
         return None
 
@@ -200,9 +201,19 @@ class Canvas(tkinter.Canvas):
             return list(args[0])
         return list(args)
 
+    @staticmethod
+    def _flatten_coords(args) -> list[Any]:
+        flat: list[Any] = []
+        for arg in args:
+            if isinstance(arg, (list, tuple)):
+                flat.extend(Canvas._flatten_coords(arg))
+            else:
+                flat.append(arg)
+        return flat
+
     # --- item creation -------------------------------------------------------
     def create(self, itemtype: str, *coords: Any, **kw: Any) -> int:
-        args = [serialize_value(c) for c in coords]
+        args = [serialize_value(c) for c in self._flatten_coords(coords)]
         args += self._flatten_options(kw)
         return int(self._call("create", itemtype, *args))
 
@@ -223,9 +234,13 @@ class Canvas(tkinter.Canvas):
 
     # --- coordinates ----------------------------------------------------------
     def coords(self, item: Any, *args: Any):
-        result = self._call("coords", serialize_value(item), *[serialize_value(a) for a in args])
         if args:
+            if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                args = tuple(args[0])
+            flat = self._flatten_coords(args)
+            self._call("coords", serialize_value(item), *[serialize_value(a) for a in flat])
             return None
+        result = self._call("coords", serialize_value(item))
         return [float(v) for v in result.split()]
 
     def move(self, items: Any, dx: float, dy: float) -> None:
@@ -285,7 +300,7 @@ class Canvas(tkinter.Canvas):
         return self._call("cget", f"-{option.lstrip('-')}")
 
     # --- bbox / find / tags -----------------------------------------------------
-    def bbox(self, *items: Any) -> Optional[Tuple[float, float, float, float]]:
+    def bbox(self, *items: Any) -> Optional[Tuple[int, int, int, int]]:
         return _parse_bbox(self._call("bbox", *[serialize_value(i) for i in items]))
 
     def find_withtag(self, tag: Any) -> tuple[int, ...]:

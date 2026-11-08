@@ -39,8 +39,8 @@ CanvasItemPtr MakeOval(CanvasItem::Id id, const std::vector<double>& coords) {
 }
 
 CanvasItemPtr MakePolygon(CanvasItem::Id id, const std::vector<double>& coords) {
-    if (coords.size() < 6 || coords.size() % 2 != 0) {
-        throw std::invalid_argument("wrong # coordinates: expected at least 6 (an even number), got " +
+    if (coords.size() < 2 || coords.size() % 2 != 0) {
+        throw std::invalid_argument("wrong # coordinates: expected at least 2 (an even number), got " +
                                     std::to_string(coords.size()));
     }
     Points points;

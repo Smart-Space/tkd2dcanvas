@@ -40,3 +40,32 @@ def test_move(canvas):
         assert canvas.coords(item) == pytest.approx([7, 3, 17, 13])
     except CommandError as exc:
         pytest.skip(str(exc))
+
+
+def test_coords_accepts_a_flat_list(canvas):
+    try:
+        item = canvas.create_polygon(0, 0, 10, 0, 10, 10)
+        canvas.coords(item, (1, 2, 3, 4, 5, 6))
+        assert canvas.coords(item) == pytest.approx([1, 2, 3, 4, 5, 6])
+    except CommandError as exc:
+        pytest.skip(str(exc))
+
+
+def test_coords_flattens_nested_lists(canvas):
+    """tkinter accepts nested coordinate sequences and flattens them."""
+    try:
+        item = canvas.create_polygon(0, 0, 10, 0, 10, 10)
+        canvas.coords(item, (1, 2, 3, 4, (5, 6)))
+        assert canvas.coords(item) == pytest.approx([1, 2, 3, 4, 5, 6])
+        canvas.coords(item, 1, 2, (3, 4))
+        assert canvas.coords(item) == pytest.approx([1, 2, 3, 4])
+    except CommandError as exc:
+        pytest.skip(str(exc))
+
+
+def test_create_flattens_nested_lists(canvas):
+    try:
+        item = canvas.create_polygon(1, 2, 3, 4, (5, 6))
+        assert canvas.coords(item) == pytest.approx([1, 2, 3, 4, 5, 6])
+    except CommandError as exc:
+        pytest.skip(str(exc))

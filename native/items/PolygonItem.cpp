@@ -170,7 +170,7 @@ int PolygonItem::AreaOverlap(const double rect[4]) const {
 }
 
 bool PolygonItem::SetCoordinates(const std::vector<double>& coords) {
-    if (coords.size() < 6 || coords.size() % 2 != 0) return false;
+    if (coords.size() < 2 || coords.size() % 2 != 0) return false;
     std::vector<Point> points;
     points.reserve(coords.size() / 2);
     for (std::size_t i = 0; i < coords.size(); i += 2) {
@@ -182,14 +182,16 @@ bool PolygonItem::SetCoordinates(const std::vector<double>& coords) {
 
 void PolygonItem::Draw(Renderer& renderer) const {
     if (IsHidden()) return;
-    if (points_.size() < 3) return;
+    if (points_.empty()) return;
 
     Path path;
     path.closed = true;  // closes back to the start of the spline loop
     path.points = DisplayPoints();
 
-    if (const auto& fill = ItemStateFill(Style())) {
-        renderer.fillPath(path, BrushStyle{*fill});
+    if (points_.size() >= 3) {
+        if (const auto& fill = ItemStateFill(Style())) {
+            renderer.fillPath(path, BrushStyle{*fill});
+        }
     }
     if (const auto& outline = Style().outline) {
         renderer.drawLine(path, ItemPenStyle(*outline, Style(), CapStyle::Round, Style().join));

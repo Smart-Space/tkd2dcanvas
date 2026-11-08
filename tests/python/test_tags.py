@@ -72,3 +72,27 @@ def test_tag_raise_and_lower(canvas):
         assert canvas.find_all() == (a, b)
     except CommandError as exc:
         pytest.skip(str(exc))
+
+
+def test_tag_raise_above_anchor(canvas):
+    """`raise item aboveThis` puts the item just *above* the anchor."""
+    try:
+        a = canvas.create_rectangle(0, 0, 10, 10)
+        b = canvas.create_rectangle(20, 20, 30, 30)
+        c = canvas.create_rectangle(40, 40, 50, 50)
+        canvas.tag_raise(a, b)
+        assert canvas.find_all() == (b, a, c)
+    except CommandError as exc:
+        pytest.skip(str(exc))
+
+
+def test_tag_lower_below_anchor(canvas):
+    """`lower item belowThis` puts the item just *below* the anchor."""
+    try:
+        a = canvas.create_rectangle(0, 0, 10, 10)
+        b = canvas.create_rectangle(20, 20, 30, 30)
+        c = canvas.create_rectangle(40, 40, 50, 50)
+        canvas.tag_lower(c, a)
+        assert canvas.find_all() == (c, a, b)
+    except CommandError as exc:
+        pytest.skip(str(exc))

@@ -34,3 +34,4 @@ Thumbs.db
 
 .ignore
 tests/tinui/
+tools/tinui*

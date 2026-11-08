@@ -17,10 +17,9 @@ WindowItem::WindowItem(Id id, double x, double y, std::string windowPath)
     : CanvasItem(id, "window"), x_(x), y_(y), windowPath_(std::move(windowPath)) {}
 
 BBox WindowItem::GetBBox() const {
-    if (IsHidden()) return BBox::Empty();
     const double x = RoundHalfAway(x_);
     const double y = RoundHalfAway(y_);
-    if (windowPath_.empty()) {
+    if (IsHidden() || windowPath_.empty()) {
         return BBox{x, y, x + 1.0, y + 1.0};
     }
     const double w = static_cast<double>(EffectiveWidth());

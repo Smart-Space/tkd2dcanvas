@@ -46,6 +46,8 @@
 ## 选项支持情况（widget 级）
 
 `-width -height -background/-bg -cursor -borderwidth/-bd -highlightthickness
+-highlightbackground -highlightcolor -insertbackground -insertborderwidth
+-insertwidth -selectbackground -selectborderwidth -selectforeground
 -xscrollincrement -yscrollincrement -closeenough -confine -takefocus
 -scrollregion -xscrollcommand -yscrollcommand`
 

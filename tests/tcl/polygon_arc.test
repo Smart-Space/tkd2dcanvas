@@ -25,10 +25,10 @@ test polygon-more-points "polygon accepts many points" -body {
     .c coords $id
 } -result "0 0 30 0 50 40 30 80 0 40"
 
-test polygon-wrong-coords "polygon requires at least 6 coordinates (even)" -body {
-    catch {.c create polygon 0 0 10 10} msg
-    set msg
-} -match glob -result "wrong # coordinates:*"
+test polygon-two-points "a polygon with two points is accepted (Tk semantics)" -body {
+    set id [.c create polygon 0 0 10 10]
+    list [expr {[.c type $id] eq "polygon"}] [.c coords $id]
+} -result {1 {0 0 10 10}}
 
 test polygon-odd-count "polygon requires an even number of coordinates" -body {
     catch {.c create polygon 0 0 10 10 20 20 30} msg
@@ -69,7 +69,7 @@ test polygon-coords-set "coords can rewrite polygon points" -body {
 
 test polygon-coords-set-wrong-arity "coords with the wrong arity changes nothing" -body {
     set id [.c create polygon 1 2 3 4 5 6]
-    catch {.c coords $id 1 2 3 4} msg
+    catch {.c coords $id 1 2 3} msg
     list [string match "wrong # coordinates*" $msg] [.c coords $id]
 } -result {1 {1 2 3 4 5 6}}
 

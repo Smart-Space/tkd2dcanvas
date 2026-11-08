@@ -52,3 +52,15 @@ def test_bbox(canvas):
     box = _skip_unless_implemented(lambda: canvas.bbox(item))
     assert box is not None
     assert box == pytest.approx((9, 9, 101, 81))
+
+
+def test_bbox_is_integral_like_tkinter(canvas):
+    """tkinter returns the canvas' bounding boxes as integers.
+
+    Code that feeds a bbox into `wm geometry` (TinUI's tooltip and
+    combobox do) relies on it: "279.0x51.0" is not a valid geometry.
+    """
+    item = _skip_unless_implemented(lambda: canvas.create_rectangle(10, 10, 100, 80))
+    box = _skip_unless_implemented(lambda: canvas.bbox(item))
+    assert box is not None
+    assert all(isinstance(value, int) for value in box)

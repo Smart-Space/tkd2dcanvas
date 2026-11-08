@@ -93,7 +93,7 @@ bool CanvasModel::MoveItemsAbove(const std::vector<int>& ids, int anchorId) {
     std::vector<int>::iterator anchor = zOrder_.end();
     if (anchorId != kInvalidId) {
         const auto it = std::find(zOrder_.begin(), zOrder_.end(), anchorId);
-        if (it != zOrder_.end()) anchor = it;
+        if (it != zOrder_.end()) anchor = it + 1;
     }
     zOrder_.insert(anchor, moved.begin(), moved.end());
     return true;
