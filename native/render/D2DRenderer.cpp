@@ -176,6 +176,50 @@ D2D1::Matrix3x2F Compose3x2(const D2D1_MATRIX_3X2_F& A,
         A._31 * B._11 + A._32 * B._21 + B._31,
         A._31 * B._12 + A._32 * B._22 + B._32);
 }
+
+// Pixel alignment for strokes.
+//
+// Tk's canvas draws shapes with aliased GDI strokes: a stroke covers whole
+// pixels, and an edge that falls on a half pixel is resolved by sampling the
+// pixel centre. Direct2D antialiases instead, so a stroke edge on a half
+// pixel spills over two pixel rows with 50% coverage each. A 1px border drawn
+// that way looks 2px wide and soft, while Tk draws it as one solid row - the
+// classic example is TinUI's rounded button, which stacks a thick outline
+// polygon and an inset face polygon to fake a 1px border.
+//
+// Shifting the stroke geometry by half a pixel puts the stroke edges back on
+// the pixel grid: the coverage becomes 0/1 per pixel (crisp, like Tk) while
+// curved and diagonal edges keep their antialiasing. The shift only depends
+// on the path and the pen width, so items that are meant to line up (a
+// border and the face painted over it) stay aligned with each other.
+//
+// The shift is only applied where it buys something: a closed, axis-aligned
+// path with integral coordinates and an odd integer width. An even width
+// already has its edges on the pixel grid, and a curved or diagonal path
+// cannot be aligned at all.
+bool StrokePixelOffset(const Path& path, double width, double& dx, double& dy) {
+    dx = 0.0;
+    dy = 0.0;
+    if (path.points.size() < 3 || !path.closed || width <= 0.0) return false;
+
+    const double rounded = std::floor(width + 0.5);
+    if (std::abs(rounded - width) > 1e-9) return false;  // fractional width
+    if (std::fmod(rounded, 2.0) == 0.0) return false;    // even width: edges are on the grid
+
+    const std::size_t n = path.points.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        const Point& p = path.points[i];
+        if (std::abs(p.x - std::round(p.x)) > 1e-9) return false;
+        if (std::abs(p.y - std::round(p.y)) > 1e-9) return false;
+        const Point& next = path.points[(i + 1) % n];
+        if (p.x != next.x && p.y != next.y) return false;  // diagonal edge
+    }
+
+    // Move the stroke edges onto the next whole pixel in both directions.
+    dx = 0.5;
+    dy = 0.5;
+    return true;
+}
 }  // namespace
 
 void D2DRenderer::clear(const Color& color) {
@@ -215,7 +259,21 @@ void D2DRenderer::drawLine(const Path& path, const PenStyle& pen) {
 
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
     if (FAILED(D2DContext::Factory()->CreatePathGeometry(&geometry))) return;
-    BuildGeometry(path, geometry.Get());
+
+    // Half-pixel stroke edges are moved onto the pixel grid (see
+    // StrokePixelOffset), so that a 1px border stays 1px wide and crisp.
+    double dx = 0.0;
+    double dy = 0.0;
+    if (StrokePixelOffset(path, pen.width, dx, dy)) {
+        Path shifted = path;
+        for (Point& p : shifted.points) {
+            p.x += dx;
+            p.y += dy;
+        }
+        BuildGeometry(shifted, geometry.Get());
+    } else {
+        BuildGeometry(path, geometry.Get());
+    }
 
     auto stroke = PenCache::Instance().GetStrokeStyle(D2DContext::Factory(), pen);
 
