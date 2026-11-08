@@ -15,6 +15,7 @@
 #include "tkd2dcanvas/Color.h"
 #include "tkd2dcanvas/DashPattern.h"
 #include "tkd2dcanvas/Renderer.h"
+#include "tkd2dcanvas/ItemStyle.h"
 #include "tkd2dcanvas/SmoothCurve.h"
 #include "CanvasTkFont.h"
 
@@ -77,6 +78,10 @@ struct ItemConfig {
     // item's anchor point; normalized to [0, 360) by the item.
     bool hasAngle = false;
     double angle = 0.0;
+    bool hasState = false;
+    ItemState state = ItemState::Normal;
+    bool hasDisabledFill = false;
+    std::optional<Color> disabledFill;
     // Text items (-text/-font/-justify/-wrap). -width reuses hasWidth/width
     // and means "wrap length in canvas units" on text items (Tk semantics).
     bool hasText = false;

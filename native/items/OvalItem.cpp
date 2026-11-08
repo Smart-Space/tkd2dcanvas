@@ -16,6 +16,7 @@ OvalItem::OvalItem(Id id, double x1, double y1, double x2, double y2)
 }
 
 BBox OvalItem::GetBBox() const {
+    if (IsHidden()) return BBox::Empty();
     return TkRectOvalBBox(x1_, y1_, x2_, y2_, TkHasOutlineGC(Style()), Style().width);
 }
 
@@ -101,6 +102,8 @@ void OvalItem::SetCoordinates(double x1, double y1, double x2, double y2) {
 }
 
 void OvalItem::Draw(Renderer& renderer) const {
+    if (IsHidden()) return;
+
     const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
     const double top = std::min(y1_, y2_), bottom = std::max(y1_, y2_);
     const double cx = (left + right) * 0.5, cy = (top + bottom) * 0.5;
@@ -120,7 +123,7 @@ void OvalItem::Draw(Renderer& renderer) const {
         path.points.push_back(Point{cx + rx * std::cos(angle), cy + ry * std::sin(angle)});
     }
 
-    if (const auto& fill = Style().fill) {
+    if (const auto& fill = ItemStateFill(Style())) {
         renderer.fillPath(path, BrushStyle{*fill});
     }
     if (const auto& outline = Style().outline) {

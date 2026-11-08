@@ -53,6 +53,7 @@ LineItem::LineItem(Id id, std::vector<Point> points)
 }
 
 BBox LineItem::GetBBox() const {
+    if (IsHidden()) return BBox::Empty();
     if (points_.empty()) return BBox::Empty();
 
     int x1 = TkTruncToInt(points_[0].x), x2 = x1;
@@ -159,6 +160,7 @@ bool LineItem::SetCoordinates(const std::vector<double>& coords) {
 }
 
 void LineItem::Draw(Renderer& renderer) const {
+    if (IsHidden()) return;
     if (points_.size() < 2) return;
 
     Path path;
@@ -167,7 +169,8 @@ void LineItem::Draw(Renderer& renderer) const {
 
     // Lines paint through -fill (Tk semantics); -outline is accepted as an
     // alias when -fill is empty.
-    const std::optional<Color> paint = Style().fill.has_value() ? Style().fill : Style().outline;
+    const std::optional<Color> fill = ItemStateFill(Style());
+    const std::optional<Color> paint = fill.has_value() ? fill : Style().outline;
     if (paint) {
         renderer.drawLine(path, ItemPenStyle(*paint, Style(), Style().cap, Style().join));
     }

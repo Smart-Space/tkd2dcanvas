@@ -50,6 +50,10 @@ struct CanvasWidget {
     Tcl_Command command = nullptr;
     std::string path;
 
+    unsigned buttonState = 0;
+    bool leftGrabbedItem = false;
+    int repickDepth = 0;
+
     CanvasModel model;
     Win32Surface surface;
     Color backgroundColor{255, 255, 255};
@@ -118,9 +122,15 @@ struct CanvasWidget {
     void RepaintAfterScroll(double oldX, double oldY);
 
     // Picks the item under the given (widget local) coordinates and makes it
-    // the "current" item. The hit test itself lives in the C++ core.
-    void PickCurrentItem(int x, int y);
-    // Clears the current item (the pointer left the widget).
+    // the "current" item. The hit test itself lives in the C++ core. As a
+    // side effect, synthesized <Enter>/<Leave> events are dispatched to the
+    // tag bindings when the current item changes (Tk: PickCurrentItem).
+    // `event` is the pointer event that triggered the pick; its copy is used
+    // as the template for the synthesized events. May be nullptr, in which
+    // case no synthesized events are dispatched.
+    void PickCurrentItem(int x, int y, XEvent* event);
+    // Clears the current item (the pointer left the widget or the item was
+    // deleted). Does not synthesize events.
     void ClearCurrentItem();
 
     // The event patterns bound to a binding object (empty when there is none).

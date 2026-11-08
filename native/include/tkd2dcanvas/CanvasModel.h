@@ -48,7 +48,7 @@ public:
     // --- Hit testing -------------------------------------------------------------
     // The topmost item whose shape is within `tolerance` of the point, or
     // kInvalidId when the point hits nothing.
-    int FindItemAt(double x, double y, double tolerance) const;
+    int FindItemAt(double x, double y, double tolerance, bool skipDisabled = true) const;
     // The item closest to the point. `halo` shrinks every distance by that
     // amount (never below zero), so items inside the halo count as equally
     // close. Ties are won by the topmost item.

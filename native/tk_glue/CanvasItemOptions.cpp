@@ -368,6 +368,18 @@ bool ParseItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
             }
             out.hasAngle = true;
             out.angle = angle;
+        } else if (name == "state") {
+            ItemState state = ItemState::Normal;
+            const std::string raw = Tcl_GetString(value);
+            if (!ItemStateFromName(raw, state)) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad -state \"%s\": must be normal, hidden, or disabled", raw.c_str()));
+                return false;
+            }
+            out.hasState = true;
+            out.state = state;
+        } else if (name == "disabledfill") {
+            out.hasDisabledFill = true;
+            if (!ParseColorOption(interp, widget, value, out.disabledFill)) return false;
         } else if (name == "text") {
             out.hasText = true;
             out.text = Tcl_GetString(value);
@@ -477,6 +489,11 @@ bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-fill\" is not valid for %s items", type.c_str()));
         return false;
     }
+    if (config.hasDisabledFill &&
+        !(isShape || type == "text")) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-disabledfill\" is not valid for %s items", type.c_str()));
+        return false;
+    }
     if ((config.hasOutline || config.hasDash || config.hasDashOffset) && !isShape) {
         const char* name = config.hasOutline ? "-outline"
                           : config.hasDash ? "-dash"
@@ -578,6 +595,10 @@ void RefreshTextLayout(CanvasWidget& widget, TextItem& item, const ItemConfig& c
 void ApplyItemConfig(CanvasWidget& widget, int itemId, CanvasItem& item, const ItemConfig& config) {
     if (config.hasFill) item.Style().fill = config.fill;
     if (config.hasOutline) item.Style().outline = config.outline;
+    if (config.hasDisabledFill) item.Style().disabledFill = config.disabledFill;
+    if (config.hasState) {
+        item.Style().state = config.state;
+    }
     if (config.hasWidth) {
         if (item.Type() == "text") {
             static_cast<TextItem&>(item).SetWrapWidth(config.width);
@@ -769,6 +790,17 @@ std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
         if (name == "foreground") return bitmap.HasForeground() ? bitmap.Foreground().ToHex() : "";
         return bitmap.HasBackground() ? bitmap.Background().ToHex() : "";
     }
+    const std::string itemType = item.Type();
+    const bool isShapeType = itemType == "rectangle" || itemType == "oval" || itemType == "line" ||
+                             itemType == "polygon" || itemType == "arc";
+    if (name == "disabledfill") {
+        if (!isShapeType && itemType != "text") return {};
+        const auto& fill = item.Style().disabledFill;
+        return fill ? fill->ToHex() : "";
+    }
+    if (name == "state") {
+        return ItemStateName(item.Style().state);
+    }
     return {};
 }
 
@@ -827,6 +859,14 @@ Tcl_Obj* ItemConfigReport(Tcl_Interp* interp, CanvasItem& item) {
             Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
             Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
         }
+    }
+    if (isShape || item.Type() == "text") {
+        Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, "-disabledfill").c_str(), -1);
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("-disabledfill", -1), value);
+    }
+    {
+        Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, "-state").c_str(), -1);
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("-state", -1), value);
     }
     return dict;
 }

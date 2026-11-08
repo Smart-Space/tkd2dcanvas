@@ -40,6 +40,7 @@ void TextItem::SetAngle(double angle) {
 }
 
 BBox TextItem::GetBBox() const {
+    if (IsHidden()) return BBox::Empty();
     const double w = std::max(layout_.maxLineWidth, kMinBBoxSpan);
     const double h = std::max(BlockHeight(), kMinBBoxSpan);
     const double offsetX = AnchorOffsetX(anchor_, w);
@@ -148,9 +149,14 @@ double TextItem::DistanceTo(Point p) const {
 }
 
 void TextItem::Draw(Renderer& renderer) const {
+    if (IsHidden()) return;
     if (layout_.lines.empty()) return;
 
     if (!Style().fill) return;  // -fill "" disables the text (Tk)
+
+    const Color fill = (Style().state == ItemState::Disabled && Style().disabledFill.has_value())
+        ? *Style().disabledFill
+        : *Style().fill;
 
     TextStyle style;
     style.fontFamily = font_.family;
@@ -159,7 +165,7 @@ void TextItem::Draw(Renderer& renderer) const {
     style.italic = font_.italic;
     style.underline = font_.underline;
     style.overstrike = font_.overstrike;
-    style.color = *Style().fill;
+    style.color = fill;
 
     TextLayout layout;
     layout.lines = layout_.lines;

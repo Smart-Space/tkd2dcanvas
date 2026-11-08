@@ -33,6 +33,7 @@ PolygonItem::PolygonItem(Id id, std::vector<Point> points)
 }
 
 BBox PolygonItem::GetBBox() const {
+    if (IsHidden()) return BBox::Empty();
     // Tk: ComputePolygonBbox — an integer box over the (auto-closed) vertex
     // hull, padded by (int)((width + 1.5) / 2) when the polygon has an
     // outline, with miter apex points merged in for JoinMiter, plus a 1px
@@ -180,13 +181,14 @@ bool PolygonItem::SetCoordinates(const std::vector<double>& coords) {
 }
 
 void PolygonItem::Draw(Renderer& renderer) const {
+    if (IsHidden()) return;
     if (points_.size() < 3) return;
 
     Path path;
     path.closed = true;  // closes back to the start of the spline loop
     path.points = DisplayPoints();
 
-    if (const auto& fill = Style().fill) {
+    if (const auto& fill = ItemStateFill(Style())) {
         renderer.fillPath(path, BrushStyle{*fill});
     }
     if (const auto& outline = Style().outline) {

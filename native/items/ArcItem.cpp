@@ -164,6 +164,7 @@ void ArcItem::SetAngles(double startDeg, double extentDeg) {
 }
 
 BBox ArcItem::GetBBox() const {
+    if (IsHidden()) return BBox::Empty();
     // Tk: ComputeArcBbox — an integer box around the arc's extreme points,
     // padded by 1px (no outline GC) or (int)((width+1)/2 + 1) otherwise.
     const ArcGeometry g = ComputeArcGeometry(x1_, y1_, x2_, y2_, start_, extent_);
@@ -457,6 +458,8 @@ double ArcItem::DistanceTo(Point p) const {
 }
 
 void ArcItem::Draw(Renderer& renderer) const {
+    if (IsHidden()) return;
+
     const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
     const double top = std::min(y1_, y2_), bottom = std::max(y1_, y2_);
     if (left == right && top == bottom) return;
@@ -465,7 +468,7 @@ void ArcItem::Draw(Renderer& renderer) const {
     std::vector<Point> arc = SampleArc();
     if (arc.size() < 2) return;
 
-    const auto& fill = Style().fill;
+    const auto fill = ItemStateFill(Style());
     const auto& outline = Style().outline;
 
     switch (style_) {

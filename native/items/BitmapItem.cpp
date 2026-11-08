@@ -11,6 +11,7 @@ BitmapItem::BitmapItem(Id id, double x, double y, std::string bitmapName)
     : CanvasItem(id, "bitmap"), x_(x), y_(y), bitmapName_(std::move(bitmapName)) {}
 
 BBox BitmapItem::GetBBox() const {
+    if (IsHidden()) return BBox::Empty();
     const double x = TkAnchorRound(x_);
     const double y = TkAnchorRound(y_);
     if (width_ <= 0 || height_ <= 0) {
@@ -97,6 +98,7 @@ void BitmapItem::BakePixels() {
 }
 
 void BitmapItem::Draw(Renderer& renderer) const {
+    if (IsHidden()) return;
     if (pixels_.empty() || width_ <= 0 || height_ <= 0) return;
 
     const double w = static_cast<double>(width_);

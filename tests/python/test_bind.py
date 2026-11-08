@@ -74,6 +74,38 @@ def test_bind_returns_a_funcid(canvas):
         pytest.skip(str(exc))
 
 
+def test_tag_bind_enter_leave_on_motion(canvas):
+    """<Enter> fires when the pointer moves onto an item, not only when the
+    window itself is entered (Tk canvas semantics)."""
+    try:
+        hits = []
+        canvas.create_rectangle(20, 20, 120, 100, fill="red", tags=("red",))
+        canvas.create_rectangle(140, 20, 240, 100, fill="blue", tags=("blue",))
+        canvas.tag_bind("red", "<Enter>", lambda e: hits.append("red-enter"))
+        canvas.tag_bind("red", "<Leave>", lambda e: hits.append("red-leave"))
+        canvas.tag_bind("blue", "<Enter>", lambda e: hits.append("blue-enter"))
+        canvas.tag_bind("blue", "<Leave>", lambda e: hits.append("blue-leave"))
+
+        def motion(x, y):
+            canvas.master.tk.call("event", "generate", canvas.tk_path, "<Motion>",
+                                  "-x", str(x), "-y", str(y))
+            canvas.master.update()
+
+        motion(60, 60)
+        assert hits == ["red-enter"]
+        hits.clear()
+        motion(190, 60)
+        assert hits == ["red-leave", "blue-enter"]
+        hits.clear()
+        motion(250, 200)
+        assert hits == ["blue-leave"]
+        hits.clear()
+        motion(60, 60)
+        assert hits == ["red-enter"]
+    except CommandError as exc:
+        pytest.skip(str(exc))
+
+
 def test_tag_bind_multiple_callbacks(canvas):
     """Several callbacks may share one sequence (like tkinter's "add")."""
     try:

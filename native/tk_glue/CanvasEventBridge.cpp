@@ -2,6 +2,7 @@
 
 #include "CanvasBindCommand.h"
 #include "CanvasWidget.h"
+#include "CanvasPointerState.h"
 
 namespace tkd2dcanvas {
 
@@ -61,27 +62,43 @@ void CanvasInputEventProc(ClientData clientData, XEvent* eventPtr) {
 
     switch (eventPtr->type) {
         case ButtonPress:
-        case MotionNotify:
-        case EnterNotify:
-            widget->PickCurrentItem(eventPtr->xbutton.x, eventPtr->xbutton.y);
+            // On a button press, first repick the current item with the
+            // button state before the press (the pressed button does not
+            // count yet, whether or not the event's state includes it),
+            // then process the event.
+            widget->buttonState = eventPtr->xbutton.state & ~ButtonMaskOf(eventPtr->xbutton.button);
+            widget->PickCurrentItem(eventPtr->xbutton.x, eventPtr->xbutton.y, eventPtr);
+            widget->buttonState = eventPtr->xbutton.state;
+            CanvasDispatchEvent(*widget, eventPtr);
             break;
-        default:
-            break;
-    }
 
-    CanvasDispatchEvent(*widget, eventPtr);
-
-    switch (eventPtr->type) {
         case ButtonRelease:
-            // The pointer may have moved away while the button was down: pick
-            // the current item again (Tk does the same).
-            widget->PickCurrentItem(eventPtr->xbutton.x, eventPtr->xbutton.y);
+            // On a button release, first process the event (with the button
+            // state as reported), then repick with the released button
+            // counted as up (whether or not the event's state includes it).
+            widget->buttonState = eventPtr->xbutton.state;
+            CanvasDispatchEvent(*widget, eventPtr);
+            widget->buttonState = eventPtr->xbutton.state & ~ButtonMaskOf(eventPtr->xbutton.button);
+            widget->PickCurrentItem(eventPtr->xbutton.x, eventPtr->xbutton.y, eventPtr);
             break;
+
+        case MotionNotify:
+            widget->buttonState = eventPtr->xmotion.state;
+            widget->PickCurrentItem(eventPtr->xmotion.x, eventPtr->xmotion.y, eventPtr);
+            CanvasDispatchEvent(*widget, eventPtr);
+            break;
+
+        case EnterNotify:
         case LeaveNotify:
-            // The pointer left the widget: there is no current item any more.
-            widget->ClearCurrentItem();
+            // Pointer entered/left the widget. Tk dispatches no item binding
+            // for the raw event; the repick synthesizes enter/leave events
+            // for the items involved.
+            widget->buttonState = eventPtr->xcrossing.state;
+            widget->PickCurrentItem(eventPtr->xcrossing.x, eventPtr->xcrossing.y, eventPtr);
             break;
+
         default:
+            CanvasDispatchEvent(*widget, eventPtr);
             break;
     }
 

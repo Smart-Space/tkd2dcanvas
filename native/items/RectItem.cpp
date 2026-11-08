@@ -15,6 +15,7 @@ RectItem::RectItem(Id id, double x1, double y1, double x2, double y2)
 }
 
 BBox RectItem::GetBBox() const {
+    if (IsHidden()) return BBox::Empty();
     // Tk: the bbox is an integer box with a pen-width bloat (ComputeRectOvalBBox).
     return TkRectOvalBBox(x1_, y1_, x2_, y2_, TkHasOutlineGC(Style()), Style().width);
 }
@@ -83,6 +84,8 @@ void RectItem::SetCoordinates(double x1, double y1, double x2, double y2) {
 }
 
 void RectItem::Draw(Renderer& renderer) const {
+    if (IsHidden()) return;
+
     const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
     const double top = std::min(y1_, y2_), bottom = std::max(y1_, y2_);
 
@@ -90,7 +93,7 @@ void RectItem::Draw(Renderer& renderer) const {
     path.closed = true;
     path.points = {{left, top}, {right, top}, {right, bottom}, {left, bottom}};
 
-    if (const auto& fill = Style().fill) {
+    if (const auto& fill = ItemStateFill(Style())) {
         renderer.fillPath(path, BrushStyle{*fill});
     }
     if (const auto& outline = Style().outline) {

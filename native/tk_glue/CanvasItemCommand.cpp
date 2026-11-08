@@ -339,6 +339,10 @@ int MoveToCmd(CanvasWidget& widget, Tcl_Interp* interp,
     }
 
     const BBox ref = widget.model.ItemBBox(ids.front());
+    if (!ref.IsValid()) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+        return TCL_OK;
+    }
     const double dx = xBlank ? 0.0 : newX - ref.left;
     const double dy = yBlank ? 0.0 : newY - ref.top;
 
@@ -505,8 +509,11 @@ int ItemConfigureCmd(CanvasWidget& widget, Tcl_Interp* interp,
         CanvasItem* item = widget.model.FindItem(id);
         if (!item) continue;
         const double oldWidth = item->Style().width;
+        const BBox before = item->GetBBox();
         ApplyItemConfig(widget, id, *item, config);
-        InvalidateItem(widget, *item, std::max(oldWidth, item->Style().width));
+        const double pad = std::max(oldWidth, item->Style().width);
+        InvalidatePadded(widget, before, pad);
+        InvalidateItem(widget, *item, pad);
     }
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
     return TCL_OK;
@@ -530,7 +537,8 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
                                      "start", "extent", "style", "joinstyle", "capstyle",
                                      "smooth", "splinesteps",
                                      "text", "font", "anchor", "justify", "wrap",
-                                     "image", "bitmap", "foreground", "background", "angle"};
+                                     "image", "bitmap", "foreground", "background", "angle",
+                                     "state", "disabledfill"};
     bool known = false;
     for (const char* option : kOptions) {
         if (name == option) { known = true; break; }
@@ -555,6 +563,15 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
     if (arcOnly && item->Type() != "arc") {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
         return TCL_ERROR;
+    }
+    if (name == "disabledfill") {
+        const bool isShape = item->Type() == "rectangle" || item->Type() == "oval" ||
+                             item->Type() == "line" || item->Type() == "polygon" ||
+                             item->Type() == "arc";
+        if (!isShape && item->Type() != "text") {
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-%s\" is not valid for %s items", name.c_str(), item->Type().c_str()));
+            return TCL_ERROR;
+        }
     }
     if (name == "joinstyle" &&
         item->Type() != "line" && item->Type() != "polygon") {

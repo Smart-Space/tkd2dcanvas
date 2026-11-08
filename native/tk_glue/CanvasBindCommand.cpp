@@ -75,6 +75,23 @@ constexpr unsigned long kAllowedEventMask =
     EnterWindowMask | LeaveWindowMask | KeyPressMask | KeyReleaseMask |
     PointerMotionMask | VirtualEventMask;
 
+std::vector<ClientData> BuildBindingObjects(CanvasWidget& widget, int itemId) {
+    const CanvasItem* item = itemId != CanvasModel::kInvalidId
+        ? widget.model.FindItem(itemId)
+        : nullptr;
+
+    std::vector<ClientData> objects;
+    objects.reserve(item ? item->Tags().size() + 2 : 1);
+    objects.push_back(AllBindingObject());
+    if (item) {
+        for (const std::string& tag : item->Tags()) {
+            objects.push_back(reinterpret_cast<ClientData>(const_cast<char*>(Tk_GetUid(tag.c_str()))));
+        }
+        objects.push_back(ItemBindingObject(widget, itemId));
+    }
+    return objects;
+}
+
 }  // namespace
 
 int CanvasBindSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
@@ -256,21 +273,20 @@ void CanvasDispatchEvent(CanvasWidget& widget, XEvent* eventPtr) {
         if (itemId == CanvasModel::kInvalidId) return;
     }
 
-    const CanvasItem* item = widget.model.FindItem(itemId);
-
     // The order matters: the canvas itself ("all") first, then the tags of
     // the item in the order they were added, then the item itself (this is
     // the order Tk's canvas uses).
-    std::vector<ClientData> objects;
-    objects.reserve(item ? item->Tags().size() + 2 : 1);
-    objects.push_back(AllBindingObject());
-    if (item) {
-        for (const std::string& tag : item->Tags()) {
-            objects.push_back(reinterpret_cast<ClientData>(const_cast<char*>(Tk_GetUid(tag.c_str()))));
-        }
-        objects.push_back(ItemBindingObject(widget, itemId));
-    }
+    std::vector<ClientData> objects = BuildBindingObjects(widget, itemId);
+    Tk_BindEvent(widget.bindingTable, eventPtr, widget.tkwin, static_cast<int>(objects.size()), objects.data());
+}
 
+void CanvasDispatchCrossing(CanvasWidget& widget, XEvent* eventPtr, int itemId) {
+    if (!widget.bindingTable || !eventPtr) return;
+
+    if (itemId != CanvasModel::kInvalidId && !widget.model.Exists(itemId)) {
+        itemId = CanvasModel::kInvalidId;
+    }
+    std::vector<ClientData> objects = BuildBindingObjects(widget, itemId);
     Tk_BindEvent(widget.bindingTable, eventPtr, widget.tkwin, static_cast<int>(objects.size()), objects.data());
 }
 

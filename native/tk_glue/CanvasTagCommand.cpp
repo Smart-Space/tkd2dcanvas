@@ -179,11 +179,12 @@ bool RunSearch(CanvasWidget& widget, Tcl_Interp* interp,
             for (int id : widget.model.AllItemIds()) {
                 const BBox box = widget.model.ItemBBox(id);
                 if (!box.IsValid()) continue;
+                CanvasItem* item = widget.model.FindItem(id);
+                if (!item) continue;
+                if (item->IsHidden()) continue;
                 if (box.left >= rx2 || box.right <= rx1 || box.top >= ry2 || box.bottom <= ry1) {
                     continue;
                 }
-                CanvasItem* item = widget.model.FindItem(id);
-                if (!item) continue;
                 const int overlap = item->AreaOverlap(rect);
                 if (enclosedOnly ? (overlap == 1) : (overlap >= 0)) {
                     out.push_back(id);

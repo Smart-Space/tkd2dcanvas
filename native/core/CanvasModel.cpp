@@ -150,12 +150,14 @@ BBox CanvasModel::AllBBox() const {
     return result;
 }
 
-int CanvasModel::FindItemAt(double x, double y, double tolerance) const {
+int CanvasModel::FindItemAt(double x, double y, double tolerance, bool skipDisabled) const {
     const Point p{x, y};
     // Topmost first: the last item in the display list wins.
     for (auto it = zOrder_.rbegin(); it != zOrder_.rend(); ++it) {
         const auto* item = FindItem(*it);
         if (!item) continue;
+        if (item->IsHidden()) continue;
+        if (skipDisabled && item->IsDisabled()) continue;
         if (item->HitTest(p, tolerance)) return *it;
     }
     return kInvalidId;
@@ -184,6 +186,7 @@ int CanvasModel::FindClosestFrom(double x, double y, double halo, int startId) c
         const int id = zOrder_[(start + i) % zOrder_.size()];
         const auto* item = FindItem(id);
         if (!item) continue;
+        if (item->IsHidden()) continue;
         double dist = item->DistanceTo(p) - halo;
         if (dist < 0.0) dist = 0.0;
         // "<=" makes the item found last win a tie (Tk behaves the same way).

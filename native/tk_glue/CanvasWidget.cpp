@@ -12,12 +12,44 @@
 #include "CanvasItemCommand.h"
 #include "CanvasEventBridge.h"
 #include "CanvasScrollBridge.h"
+#include "CanvasBindCommand.h"
 #include "D2DRenderer.h"
 #include "WindowHook.h"
+#include "CanvasPointerState.h"
 
 namespace tkd2dcanvas {
 
 namespace {
+
+// Translates a pointer event into the "pick event" Tk uses for the current
+// item: motion and button-release events are reported to item handlers as
+// EnterNotify (Tk: the pickEvent in PickCurrentItem).
+XEvent MakePickEvent(const XEvent* eventPtr) {
+    XEvent pickEvent{};
+    if (eventPtr->type == MotionNotify || eventPtr->type == ButtonRelease) {
+        pickEvent.type = EnterNotify;
+        pickEvent.xcrossing.type = EnterNotify;
+        pickEvent.xcrossing.serial = eventPtr->xmotion.serial;
+        pickEvent.xcrossing.send_event = eventPtr->xmotion.send_event;
+        pickEvent.xcrossing.display = eventPtr->xmotion.display;
+        pickEvent.xcrossing.window = eventPtr->xmotion.window;
+        pickEvent.xcrossing.root = eventPtr->xmotion.root;
+        pickEvent.xcrossing.subwindow = None;
+        pickEvent.xcrossing.time = eventPtr->xmotion.time;
+        pickEvent.xcrossing.x = eventPtr->xmotion.x;
+        pickEvent.xcrossing.y = eventPtr->xmotion.y;
+        pickEvent.xcrossing.x_root = eventPtr->xmotion.x_root;
+        pickEvent.xcrossing.y_root = eventPtr->xmotion.y_root;
+        pickEvent.xcrossing.mode = NotifyNormal;
+        pickEvent.xcrossing.detail = NotifyNonlinear;
+        pickEvent.xcrossing.same_screen = eventPtr->xmotion.same_screen;
+        pickEvent.xcrossing.focus = False;
+        pickEvent.xcrossing.state = eventPtr->xmotion.state;
+    } else {
+        pickEvent = *eventPtr;
+    }
+    return pickEvent;
+}
 
 // Evaluates "winfo <what> <path>" and returns the result as a string.
 bool QueryWinfo(Tcl_Interp* interp, const std::string& path, const char* what, std::string& out) {
@@ -270,22 +302,63 @@ void CanvasWidget::Invalidate(const BBox& box) {
     surface.Invalidate(local);
 }
 
-void CanvasWidget::PickCurrentItem(int x, int y) {
-    // The hit test lives in the C++ core: the topmost item whose shape is
-    // within the -closeenough tolerance wins. Widget-local coordinates are
-    // mapped to canvas coordinates with the view offset.
+void CanvasWidget::PickCurrentItem(int x, int y, XEvent* eventPtr) {
     const CanvasView& view = model.View();
-    const int id = model.FindItemAt(x + view.XOffset(), y + view.YOffset(), closeEnough);
-    if (id == currentItemId) return;
+    const XEvent pickEvent = eventPtr ? MakePickEvent(eventPtr) : XEvent{};
 
-    // The "current" tag follows the item under the pointer (Tk semantics).
-    if (currentItemId != CanvasModel::kInvalidId) {
-        model.RemoveTag(currentItemId, kCurrentTag);
+    if (repickDepth) return;
+
+    const bool buttonDown = (buttonState & kAllButtonMasks) != 0;
+
+    int newId = CanvasModel::kInvalidId;
+    if (pickEvent.type != LeaveNotify) {
+        newId = model.FindItemAt(x + view.XOffset(), y + view.YOffset(), closeEnough);
     }
-    if (id != CanvasModel::kInvalidId) {
-        model.AddTag(id, kCurrentTag);
+
+    if (newId == currentItemId && !leftGrabbedItem) return;
+    if (!buttonDown) leftGrabbedItem = false;
+
+    // Simulate a LeaveNotify on the previous current item (Tk keeps the
+    // "current" tag on the old item until the handler has run).
+    if (newId != currentItemId && currentItemId != CanvasModel::kInvalidId &&
+        !leftGrabbedItem) {
+        const int oldId = currentItemId;
+        const bool oldExists = model.Exists(oldId);
+        if (oldExists && eventPtr) {
+            XEvent ev = pickEvent;
+            ev.type = LeaveNotify;
+            ev.xcrossing.detail = NotifyAncestor;
+            ++repickDepth;
+            CanvasDispatchCrossing(*this, &ev, oldId);
+            --repickDepth;
+        }
+        // A Leave handler may delete items (possibly the canvas itself).
+        // With a button held the grabbed item keeps the "current" tag
+        // (Tk: the tag is only removed when no button is down); the
+        // release repick takes it away.
+        if (!buttonDown && model.Exists(oldId)) model.RemoveTag(oldId, kCurrentTag);
+        if (newId != CanvasModel::kInvalidId && !model.Exists(newId)) {
+            newId = CanvasModel::kInvalidId;
+        }
     }
-    currentItemId = id;
+    if (newId != currentItemId && buttonDown) {
+        // A button is down: no new current item is entered until the
+        // release (a form of pointer capture on the current item).
+        leftGrabbedItem = true;
+        return;
+    }
+
+    const int prevId = currentItemId;
+    currentItemId = newId;
+    if (newId != CanvasModel::kInvalidId) {
+        model.AddTag(newId, kCurrentTag);
+        if (eventPtr && prevId != newId) {
+            XEvent ev = pickEvent;
+            ev.type = EnterNotify;
+            ev.xcrossing.detail = NotifyAncestor;
+            CanvasDispatchCrossing(*this, &ev, newId);
+        }
+    }
 }
 
 void CanvasWidget::ClearCurrentItem() {
@@ -293,6 +366,7 @@ void CanvasWidget::ClearCurrentItem() {
         model.RemoveTag(currentItemId, kCurrentTag);
     }
     currentItemId = CanvasModel::kInvalidId;
+    leftGrabbedItem = false;
 }
 
 std::vector<std::string> CanvasWidget::BoundSequences(ClientData object) const {
@@ -372,6 +446,9 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
                                          overlap.right + dx + kCullSlack,
                                          overlap.bottom + dy + kCullSlack};
                       for (const auto& entry : items) {
+                          if (entry.first->IsHidden()) {
+                               continue;
+                           }
                           if (entry.second.IsValid() &&
                               !entry.second.Intersects(visible)) {
                               continue;

@@ -60,6 +60,9 @@ public:
     // --- Rendering ---------------------------------------------------------
     virtual void Draw(Renderer& renderer) const = 0;
 
+    bool IsHidden() const { return Style().state == ItemState::Hidden; }
+    bool IsDisabled() const { return Style().state == ItemState::Disabled; }
+
     // Visual style shared by all items (-fill/-outline/-width/-dash).
     ItemStyle& Style() { return style_; }
     const ItemStyle& Style() const { return style_; }

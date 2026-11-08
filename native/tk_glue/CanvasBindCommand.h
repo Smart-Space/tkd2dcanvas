@@ -31,4 +31,10 @@ int CanvasFocusSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
 // under the pointer must be up to date (see CanvasWidget::PickCurrentItem).
 void CanvasDispatchEvent(CanvasWidget& widget, XEvent* eventPtr);
 
+// Dispatches a synthesized <Enter>/<Leave> event to the tag bindings of
+// `itemId`. The event must already be translated to the enter or leave
+// shape (type and detail are taken as-is); `xcrossing` coordinates are
+// reported to the bindings as-is.
+void CanvasDispatchCrossing(CanvasWidget& widget, XEvent* eventPtr, int itemId);
+
 }  // namespace tkd2dcanvas
