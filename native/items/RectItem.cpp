@@ -8,6 +8,8 @@
 
 RectItem::RectItem(Id id, double x1, double y1, double x2, double y2)
     : CanvasItem(id, "rectangle"), x1_(x1), y1_(y1), x2_(x2), y2_(y2) {
+    if (x1_ > x2_) std::swap(x1_, x2_);
+    if (y1_ > y2_) std::swap(y1_, y2_);
     // Tk defaults: no fill, black 1px outline.
     Style().outline = Color{0, 0, 0};
 }
@@ -71,6 +73,8 @@ double RectItem::DistanceTo(Point p) const {
 bool RectItem::SetCoordinates(const std::vector<double>& coords) {
     if (coords.size() != 4) return false;
     x1_ = coords[0]; y1_ = coords[1]; x2_ = coords[2]; y2_ = coords[3];
+    if (x1_ > x2_) std::swap(x1_, x2_);
+    if (y1_ > y2_) std::swap(y1_, y2_);
     return true;
 }
 

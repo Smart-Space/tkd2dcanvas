@@ -58,8 +58,8 @@ def test_itemconfig_alias(canvas):
 def test_itemconfigure_report(canvas):
     item = canvas.create_rectangle(0, 0, 10, 10, fill="#ff0000")
     report = canvas.itemconfigure(item)
-    assert "fill" in report
-    assert "#ff0000" in report
+    assert isinstance(report, dict)
+    assert report["fill"] == "#ff0000"
 
 
 def test_itemconfigure_atomic(canvas):

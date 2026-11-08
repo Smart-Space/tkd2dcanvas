@@ -1,5 +1,4 @@
 #include "CanvasBindCommand.h"
-
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -7,6 +6,7 @@
 
 #include "tkd2dcanvas/CanvasModel.h"
 
+#include "CanvasItemCommand.h"
 #include "CanvasWidget.h"
 
 namespace tkd2dcanvas {
@@ -191,18 +191,72 @@ int CanvasBindSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
     return TCL_OK;
 }
 
+int CanvasFocusSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
+                          int objc, Tcl_Obj* const objv[]) {
+    if (objc > 3) {
+        Tcl_WrongNumArgs(interp, 2, objv, "?tagOrId?");
+        return TCL_ERROR;
+    }
+
+    if (objc == 2) {
+        // Query: the focus item id, or "" when none has the focus.
+        if (widget.focusItemId != CanvasModel::kInvalidId &&
+            widget.model.Exists(widget.focusItemId)) {
+            Tcl_SetObjResult(interp, Tcl_NewIntObj(widget.focusItemId));
+            return TCL_OK;
+        }
+        widget.focusItemId = CanvasModel::kInvalidId;  // stale reference
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+        return TCL_OK;
+    }
+
+    const char* spec = Tcl_GetString(objv[2]);
+    if (!spec || *spec == '\0') {
+        // Tk: an empty tagOrId resets the focus item (no item has the focus).
+        widget.focusItemId = CanvasModel::kInvalidId;
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+        return TCL_OK;
+    }
+
+    std::vector<int> ids;
+    if (!ResolveItemSpecs(widget, interp, objv, /*firstArg=*/2, /*limit=*/3, ids)) {
+        return TCL_ERROR;
+    }
+
+    for (int id : ids) {
+        const CanvasItem* item = widget.model.FindItem(id);
+        if (item && item->SupportsInsertionCursor()) {
+            widget.focusItemId = id;
+            break;
+        }
+    }
+
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+    return TCL_OK;
+}
+
 void CanvasDispatchEvent(CanvasWidget& widget, XEvent* eventPtr) {
     if (!widget.bindingTable || !eventPtr) return;
 
     const bool keyEvent = (eventPtr->type == KeyPress || eventPtr->type == KeyRelease);
 
-    // Tk only dispatches to the tags of the item under the pointer; without a
-    // current item no binding fires at all (Tk canvas semantics). Key events
-    // are the exception: they fall back to the canvas wide "all" binding.
-    const int itemId = widget.currentItemId;
-    if (itemId == CanvasModel::kInvalidId && !keyEvent) return;
+    // Tk directs keyboard events to the focus item only; with no focus item
+    // no item binding fires (the widget-level `bind` on the canvas path is
+    // Tk's own business). Pointer events go to the current item as before.
+    int itemId = CanvasModel::kInvalidId;
+    if (keyEvent) {
+        itemId = widget.focusItemId;
+        if (itemId != CanvasModel::kInvalidId && !widget.model.Exists(itemId)) {
+            widget.focusItemId = CanvasModel::kInvalidId;  // stale reference
+            itemId = CanvasModel::kInvalidId;
+        }
+        if (itemId == CanvasModel::kInvalidId) return;
+    } else {
+        itemId = widget.currentItemId;
+        if (itemId == CanvasModel::kInvalidId) return;
+    }
 
-    const CanvasItem* item = (itemId == CanvasModel::kInvalidId) ? nullptr : widget.model.FindItem(itemId);
+    const CanvasItem* item = widget.model.FindItem(itemId);
 
     // The order matters: the canvas itself ("all") first, then the tags of
     // the item in the order they were added, then the item itself (this is

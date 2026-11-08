@@ -64,10 +64,13 @@
   - 顺带修复了隐患：创建期 option 校验失败的 widget（如 `-scrollregion` 解析失败）没有走完整析构路径，pending idle 回调会指向已释放对象，统一改为 `AbortCreate`
 - [x] 滚动帧增量重绘：`ScrollWindowEx` + 后备缓冲 `BitBlt` 位移，只重画新暴露条带；M10 落地时必须重新验证`SW_SCROLLCHILDREN` 与子窗口跟随
 
-## 阶段 7：Python 包装（M8）
+## 阶段 7：Python 包装（M8）✅ 完成（2026-11-08）
 
-- [ ] wheel 可安装、`load_into` 健壮、常见选项序列化
-- [ ] `tkinter.Canvas` 兼容层（见 tk_canvas_compat_matrix.md）
+- [x] wheel 可安装（`tkd2dcanvas-0.1.0-py3-none-win_amd64.whl`；干净 venv 验证）
+- [x] `load_into`：幂等（`package present` 判断），不依赖 Python id 缓存；只接受  显式 master（传 `None` 抛 `LoadError`），缺pkgIndex.tcl 时报
+  明确的 `LoadError`
+- [x] `scale` / `canvasx` / `canvasy` / `type` / `focus`
+- [x] 未实现的 tkinter.Canvas 方法显式抛 `NotImplementedError`（不依赖缺失的 Tcl 子命令）
 
 ## 阶段 8：图像与文字增强（M9）
 

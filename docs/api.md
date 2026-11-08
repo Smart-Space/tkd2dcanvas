@@ -1,8 +1,9 @@
 # Python API（草案）
 
 > 当前状态：所有方法均已定义签名，原生实现按 milestones 落地
-> （见 [roadmap.md](roadmap.md)）。未实现的命令会返回清晰的
-> `CommandError`（"not implemented yet (milestone Mxx)"）。
+> （见 [roadmap.md](roadmap.md)）。未实现的命令要么不存在，要么抛出
+> `CommandError` / `NotImplementedError`（如 `focus`），绝不会调用不存在的
+> Tcl 子命令。
 
 ## 加载
 
@@ -54,14 +55,17 @@ canvas.cget("width")
 ```python
 canvas.addtag_withtag("hot", r)          # 按 tagOrId 打 tag
 canvas.addtag_all("hot")
+canvas.addtag_above("hot", r)            # r 之上的 item
+canvas.addtag_below("hot", r)            # r 之下的 item
+canvas.addtag_closest("hot", 50, 50)     # 最近的 item（支持 halo/start）
 canvas.addtag_overlapping("hot", 0, 0, 100, 100)
-canvas.find_withtag("hot")               # -> [ids]
+canvas.find_withtag("hot")               # -> (ids, ...) tuple
 canvas.find_all()
-canvas.find_closest(50, 50)              # -> [id]
+canvas.find_closest(50, 50)              # -> (id, ...)
 canvas.find_overlapping(0, 0, 100, 100)
 canvas.find_enclosed(0, 0, 100, 100)
 canvas.dtag(r, "hot")
-canvas.gettags(r)                        # -> ["hot", ...]
+canvas.gettags(r)                        # -> ("hot", ...)
 canvas.tag_raise(r)
 canvas.tag_lower(r)
 ```
@@ -87,7 +91,30 @@ canvas.xview("moveto", 0.5)
 first, last = canvas.yview()
 ```
 
+## 缩放与坐标映射
+
+```python
+canvas.scale("all", 0, 0, 2, 2) # 以原点按 (x,y)=(2,3) 缩放
+canvas.scale(item, 100, 100, -1, -1) # 关于 (100,100) 镜像
+canvas.canvasx(53) # window 坐标 -> canvas 坐标
+canvas.canvasy(53, gridspacing=10) # 对齐到 10 的倍数
+t = canvas.type("all") # 首个匹配 item 的类型；无匹配返回 None
+```
+
 ## 异常
 
 - `tkd2dcanvas.LoadError`：Tcl package 加载失败（DLL 缺失/版本不匹配）。
 - `tkd2dcanvas.CommandError`：Tcl 命令执行失败或未实现。
+
+## 兼容面（相对 tkinter.Canvas）
+
+- `tkd2dcanvas.Canvas` 是 `tkinter.Canvas` 的子类——`winfo_*`、
+  `pack`/`grid`/`place`、`nametowidget` 等行为与普通 Tk 控件一致。
+- `find*` / `gettags` 与 tkinter 一致返回 **tuple**。
+- 无参数的 `configure()` / `itemconfigure(item)` 返回 **dict**
+  （`{选项名: 当前值}`），而不是 tkinter 的 `{name: (name, ..., 当前值)}`，
+  键不带 `-` 前缀。
+- 明确未实现（调用会抛 `NotImplementedError`）：
+  `create_bitmap`/`create_image`/`create_text`/`create_window`、
+  `postscript`、`select_*`、`dchars`/`icursor`/`index`/`insert` 等文字 item 命令。
+- 完整矩阵见 [tk_canvas_compat_matrix.md](tk_canvas_compat_matrix.md)。

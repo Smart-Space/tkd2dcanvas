@@ -191,4 +191,8 @@ if(TKG_BUILD_TESTS AND WIN32)
     add_executable(test_item_hit tests/cpp/test_item_hit.cpp ${TKG_CORE_SOURCES} ${TKG_ITEM_SOURCES})
     target_include_directories(test_item_hit PRIVATE native/include native/items)
     add_test(NAME test_item_hit COMMAND test_item_hit)
+
+    add_executable(test_scale tests/cpp/test_scale.cpp ${TKG_CORE_SOURCES} ${TKG_ITEM_SOURCES})
+    target_include_directories(test_scale PRIVATE native/include native/items)
+    add_test(NAME test_scale COMMAND test_scale)
 endif()

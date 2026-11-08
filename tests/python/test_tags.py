@@ -47,7 +47,7 @@ def test_dtag(canvas):
 def test_gettags(canvas):
     try:
         a = canvas.create_rectangle(0, 0, 10, 10, tags=("alpha", "beta"))
-        assert canvas.gettags(a) == ["alpha", "beta"]
+        assert canvas.gettags(a) == ("alpha", "beta")
     except CommandError as exc:
         pytest.skip(str(exc))
 
@@ -67,8 +67,8 @@ def test_tag_raise_and_lower(canvas):
         a = canvas.create_rectangle(0, 0, 10, 10)
         b = canvas.create_rectangle(20, 20, 30, 30)
         canvas.tag_raise(a)
-        assert canvas.find_all() == [b, a]
+        assert canvas.find_all() == (b, a)
         canvas.tag_lower(a)
-        assert canvas.find_all() == [a, b]
+        assert canvas.find_all() == (a, b)
     except CommandError as exc:
         pytest.skip(str(exc))

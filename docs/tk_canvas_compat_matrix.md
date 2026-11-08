@@ -19,21 +19,28 @@
 | `move` | ✅ (M4/M5) | |
 | `moveto` | ✅ (M6) | 语义同 Tk：把**第一个匹配 item** 的 bbox 左上角对齐到 (x, y)，所有匹配 item 按同一增量平移 |
 | `delete` | ✅ (M4/M5) | |
-| `itemconfigure` / `itemconfig` | ✅ (M5) | 支持 tag/id 并集设置；无选项时报告 dict |
+| `itemconfigure` / `itemconfig` | ✅ (M5/M8) | 支持 tag/id 并集设置；无选项时报告 **dict**（`{选项名: 当前值}`，键不带 `-`），不是 tkinter 的 5 元组；item 不匹配时返回 `{}` |
 | `itemcget` | ✅ (M5) | 返回首项匹配值；颜色以 #rrggbb 返回 |
-| `config` / `configure` | ✅ (M2/M5) | widget 级选项已实现、M5 验收 |
+| `config` / `configure` | ✅ (M2/M5/M8) | widget 级选项已实现、M5 验收；无参时报告 **dict**（`{选项名: 当前值}`，键不带 `-`）；设置时返回 `None`（同 tkinter）；`keys()` 返回 dict 报告的键 |
 | `cget` | ✅ (M5) | 读取 widget 级选项 |
 | `bbox` | ✅ (M4/M5) | 多 item 取并集；无匹配返回空串 |
-| `find_withtag` / `find_all` / `find_closest` / `find_overlapping` / `find_enclosed` | ✅ (M6) | `find` 支持 withtag/all/above/below/closest/overlapping/enclosed；Tk 4 拼写 `findwithtag`/`findall`/`findclosest` 亦可用 |
-| `addtag_withtag` / `addtag_all` / `addtag_overlapping` / `dtag` | ✅ (M6) | `addtag` 支持全部检索命令；`dtag` 支持 `dtag item tag` 与 `dtag tag` 两种写法 |
-| `gettags` | ✅ (M6) | 按添加顺序返回 |
+| `find_withtag` / `find_all` / `find_closest` / `find_overlapping` / `find_enclosed` | ✅ (M6/M8) | `find` 支持 withtag/all/above/below/closest/overlapping/enclosed；`find_closest(x, y, halo, start)` 支持 `start`；Tk 4 拼写 `findwithtag`/`findall`/`findclosest` 亦可用；Python 层 `find*` / `find_above` / `find_below` 返回 **tuple**（与 tkinter 一致） |
+| `addtag_withtag` / `addtag_all` / `addtag_above` / `addtag_below` / `addtag_closest` / `addtag_overlapping` / `addtag_enclosed` / `dtag` | ✅ (M6/M8) | `addtag` 支持全部检索命令（含 `above`/`below`/`closest [halo] [start]`）；`dtag` 支持 `dtag item tag` 与 `dtag tag` 两种写法 |
+| `gettags` | ✅ (M6/M8) | 按添加顺序返回；Python 层返回 **tuple**（与 tkinter 一致） |
 | `tag_bind` / `bind` | ✅ (M6) | C++ core 解析绑定：命中测试在 core，事件模式匹配走 Tk binding table；事件类型与 Tk 的 canvas 一致（key/button/motion/enter/leave/virtual）；支持 `add=True` 多重绑定，返回回调 id，可单独 `unbind` |
 | `tag_raise` / `tag_lower` | ✅ (M6) | `raise`/`lower` 成组移动，保持相对顺序 |
 | `xview` / `yview` | ✅ (M7) | `xview` / `xview moveto f` / `xview scroll n units\|pages`；fractions 语义与 Tk 的 `ScrollFractions` 一致（无 region 时恒为 `0.0 1.0`）；moveto 映射到**整个 region 宽度**再由 confine 拉回（Tk 行为）；`-xscrollincrement`>0 时 origin 四舍五入到 increment 的倍数 |
 | `scan_mark` / `scan_dragto` | ✅ (M7) | `scan mark x y` 记录位置与当时的 origin；`scan dragto x y ?gain?` 按 gain（默认 10）倍距离反向拖动 origin（Tk 语义，origin 取整 + confine） |
 | `postscript` | ❌ | 打印路径不计划 |
+| `scale` | ✅ (M8) | 原生 `Scale` 实现（item 坐标按点变换，rectangle/oval/arc 存储保持归一化）；负系数镜像 |
+| `canvasx` / `canvasy` | ✅ (M8) | 原生 `canvasx`/`canvasy`（window 坐标 + view 原点；`gridspacing`>0 时按 Tk 取整到最近倍数，Math"round half away"） |
+| `type` | ✅ (M8) | 原生 `type`（首个匹配 item；Python 层无匹配返回 `None`，同 tkinter） |
+| `focus` | ✅ (M8) | 原生 `focus`：仅支持插入光标的 item（目前无）可被设为焦点，与 Tk 一致；`focus` 无参返回焦点 item id（Python 层 `int`/`None`）；键盘事件只派发给焦点 item |
 | `create_a_window` 系别名 | ❌ | 不存在 |
-| pack/grid/place 管理 | ✅ 托管 | 走 Tk geometry manager（示例已用） |
+| `select_*`（select_adjust/from/to/clear/item） | ❌ | selection item 未实现 |
+| `dchars` / `icursor` / `insert` / `index` | ❌ | 文字 item 命令未实现（M9） |
+| `keys()` | ✅ (M8) | 返回 dict 报告的键（不带 `-`），与 tkinter 一致 |
+| pack/grid/place 管理 | ✅ 托管 | 走 Tk geometry manager（示例已用）；返回 `None`（同 tkinter） |
 | `winfo_*` | ✅ 托管 | 由宿主 Tk 提供 |
 
 ## 选项支持情况（widget 级）
@@ -57,6 +64,13 @@ rectangle/oval 不开放 -smooth/-splinesteps。
 - line/polygon 的 `-offset` index 形式
 
 ## 行为差异（相对 tkinter.Canvas）
+
+### M8（Python 包装）
+
+- `itemconfigure(item, "width")` / `configure("width")` 返回单个选项的当前值（tkinter 返回 5 元组）；未知选项抛 `CommandError`。
+- `load_into(master=None)` 抛 `LoadError`（必须传入已存在的 root/widget，不会隐式创建 root）；Tcl 侧以 `package require` 幂等加载，无 Python侧缓存。
+
+### 其余既有差异
 
 - 命中测试容差 `-closeenough` 默认 **1.0**
 - 坐标单位与像素 1:1（DPI 缩放完善见 Win32Dpi，0.x 暂不做整体缩放）。
@@ -86,8 +100,9 @@ rectangle/oval 不开放 -smooth/-splinesteps。
   与 Tk 的 canvas 完全一致。指针不在任何 item 上时**不派发**（`all` 也不例外），
   但键盘事件例外：没有当前 item 时只派发 `all`。
 - item 下的指针位置会带上 `current` tag（Tk 行为）。
-- 键盘事件走「当前 item」而非 Tk 的「键盘焦点 item」（`focus` 命令尚未实现，
-  属 M9/M10 范围）。
+- 键盘事件只派发给**焦点 item**（`.c focus` 设置，Tk 语义；此前版本
+  走「当前 item」，已在 M8 修正）；没有焦点 item 时**不派发**到任何
+  item（widget 级 `bind` 由宿主 Tk 处理，不受影响）。
 - `bind` 支持 tag 与 item id；item id 的绑定在该 item 被删除后自动失效
   （item id 不复用，因此不会串到别的 item 上）。
 - 多重绑定：脚本以 `+` 开头时**追加**到已有绑定之后（Tk 的语义），按注册顺序

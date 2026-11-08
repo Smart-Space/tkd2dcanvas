@@ -337,6 +337,98 @@ event generate $c <1> -x 100 -y 100
 set out $::hits
 """
 
+# scale: coords transforms, normalization and bbox, compared against Tk.
+SCALE_CMD = r"""
+proc f6 {L} {
+    set out {}
+    foreach v $L { lappend out [format %.6f $v] }
+    return [join $out ,]
+}
+$c delete all
+set out {}
+set r [$c create rectangle 10 20 110 80]
+$c scale $r 0 0 2 3
+lappend out "rect=[f6 [$c coords $r]]"
+$c scale $r 100 100 -1 -1
+lappend out "neg=[f6 [$c coords $r]]"
+set l [$c create line 10 10 100 50]
+$c scale $l 0 0 0.5 2
+lappend out "line=[f6 [$c coords $l]]"
+set p [$c create polygon 0 0 40 0 20 30]
+$c scale $p 10 10 2 2
+lappend out "poly=[f6 [$c coords $p]]"
+set ar [$c create arc 10 10 110 90 -start 30 -extent 120]
+$c scale $ar 60 50 2 2
+lappend out "arc=[f6 [$c coords $ar]]"
+set i [$c create line 110 10 210 80]
+$c scale i 0 0 1 1
+lappend out "bogus-tag-ok"
+$c scale all 0 0 0.5 0.5
+lappend out "all=[f6 [$c coords $r]]|[f6 [$c coords $l]]|[f6 [$c coords $p]]|[f6 [$c coords $ar]]"
+lappend out "bbox=[join [$c bbox $r] ,]"
+set out
+"""
+
+# canvasx / canvasy: window -> canvas coordinates through the view offset.
+CANVAS_XY = r"""
+$c configure -highlightthickness 0 -borderwidth 0 -scrollregion {0 0 1000 1000}
+$c xview moveto 0.25
+$c yview moveto 0.5
+set out {}
+foreach x {0 53 150} { lappend out "x$x=[format %.6f [$c canvasx $x]]" }
+foreach y {0 53} { lappend out "y$y=[format %.6f [$c canvasy $y]]" }
+lappend out "snap100=[format %.6f [$c canvasx 53 100]]"
+lappend out "snap0=[format %.6f [$c canvasx 53 0]]"
+lappend out "snapneg=[format %.6f [$c canvasx 53 -10]]"
+lappend out "snaphalf=[format %.6f [$c canvasx 200 100]]"
+$c xview moveto 0
+$c yview moveto 0
+set out
+"""
+
+# type: the item type, or "" when nothing matches.
+TYPE_CMD = r"""
+set out {}
+$c delete all
+set r [$c create rectangle 10 10 50 50]
+set l [$c create line 0 0 10 10]
+set p [$c create polygon 0 0 10 0 5 10]
+set o [$c create oval 0 0 10 10]
+set a [$c create arc 0 0 10 10]
+lappend out "rect=[$c type $r] line=[$c type $l] poly=[$c type $p] oval=[$c type $o] arc=[$c type $a]"
+lappend out "bogus=[$c type 999999]"
+lappend out "all=[$c type all]"
+set t [$c create line 0 0 5 5 -tags g]
+lappend out "tag=[$c type g]"
+set out
+"""
+
+# focus: items that do not support the insertion cursor are refused, exactly
+# like Tk; keyboard events dispatch only to a focus item.
+FOCUS_CMD = r"""
+$c configure -highlightthickness 0 -borderwidth 0 -takefocus 1
+focus -force $c 
+set out {}
+$c delete all
+set r [$c create rectangle 80 80 120 120 -fill blue -tags t]
+set ::hits {}
+$c bind t <KeyPress> {lappend ::hits tag}
+$c bind all <KeyPress> {lappend ::hits all}
+event generate $c <KeyPress-a> -x 100 -y 100
+lappend out "key-no-focus:$::hits"
+lappend out "query:[$c focus]"
+$c focus $r
+lappend out "rect-refused:[$c focus]"
+$c focus all
+lappend out "all-refused:[$c focus]"
+set ::hits {}
+event generate $c <KeyPress-a> -x 100 -y 100
+lappend out "key-refused:$::hits"
+$c focus {}
+lappend out "clear:[$c focus]"
+set out
+"""
+
 # The widget level binding (Tk's "bind" command on the canvas path).
 WIDGET_BINDING = r"""
 $c delete all
@@ -443,6 +535,22 @@ def test_widget_binding_matches_tk(canvases):
 
 def test_multi_binding_matches_tk(canvases):
     compare(canvases, MULTI_BINDING)
+
+
+def test_scale_matches_tk(canvases):
+    compare(canvases, SCALE_CMD)
+
+
+def test_canvas_xy_matches_tk(canvases):
+    compare(canvases, CANVAS_XY)
+
+
+def test_type_matches_tk(canvases):
+    compare(canvases, TYPE_CMD)
+
+
+def test_focus_matches_tk(canvases):
+    compare(canvases, FOCUS_CMD)
 
 
 def test_line_bbox_matches_tk(canvases):

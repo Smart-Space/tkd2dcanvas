@@ -2,6 +2,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
+
+void CanvasItem::Scale(double xOrigin, double yOrigin, double xScale, double yScale) {
+    std::vector<double> coords = GetCoordinates();
+    for (std::size_t i = 0; i + 1 < coords.size(); i += 2) {
+        coords[i] = xOrigin + (coords[i] - xOrigin) * xScale;
+        coords[i + 1] = yOrigin + (coords[i + 1] - yOrigin) * yScale;
+    }
+    SetCoordinates(coords);
+}
 
 double CanvasItem::DistanceTo(Point p) const {
     const BBox box = GetBBox();

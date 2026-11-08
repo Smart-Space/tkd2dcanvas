@@ -27,6 +27,14 @@ int HandleScrollCommand(CanvasWidget& widget, bool horizontal,
 // semantics, tkCanvas.c: CANV_SCAN). Returns TCL_OK/TCL_ERROR.
 int HandleScanCommand(CanvasWidget& widget, int objc, Tcl_Obj* const objv[]);
 
+// Implements `.c canvasx x ?gridspacing?` / `.c canvasy y ?gridspacing?`
+// (Tk canvas semantics, tkCanvas.c: CANV_CANVASX/CANV_CANVASY). The window
+// coordinate is mapped through the current view offset; when `gridspacing`
+// is a positive number the result is snapped to the nearest multiple of it
+// (halves away from zero, like Tk). Returns TCL_OK/TCL_ERROR.
+int HandleCanvasXYCommand(CanvasWidget& widget, bool horizontal,
+                          int objc, Tcl_Obj* const objv[]);
+
 // Schedules the (deferred, coalesced) -xscrollcommand/-yscrollcommand
 // notification, mirroring Tk's UPDATE_SCROLLBARS flag: every call with the
 // same widget coalesces into one pending idle callback.

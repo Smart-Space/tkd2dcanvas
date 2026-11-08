@@ -18,6 +18,15 @@ struct CanvasWidget;
 int CanvasBindSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
                           int objc, Tcl_Obj* const objv[]);
 
+// Handles `.c focus ?tagOrId?` (Tk canvas semantics, tkCanvas.c:
+// CANV_FOCUS). Without arguments, returns the focus item's id ("" when
+// none). `.c focus ""` resets the focus item to none. Otherwise the focus
+// is set to the first matching item (display list order) that supports the
+// insertion cursor; if none matches or none supports it, the focus item is
+// left unchanged (Tk silently ignores the request).
+int CanvasFocusSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
+                          int objc, Tcl_Obj* const objv[]);
+
 // Dispatches a mouse/key event to the tag bindings of the widget. The item
 // under the pointer must be up to date (see CanvasWidget::PickCurrentItem).
 void CanvasDispatchEvent(CanvasWidget& widget, XEvent* eventPtr);

@@ -354,6 +354,61 @@ int MoveToCmd(CanvasWidget& widget, Tcl_Interp* interp,
     return TCL_OK;
 }
 
+int ScaleCmd(CanvasWidget& widget, Tcl_Interp* interp,
+             int objc, Tcl_Obj* const objv[]) {
+    if (objc != 7) {
+        Tcl_WrongNumArgs(interp, 2, objv, "tagOrId xOrigin yOrigin xScale yScale");
+        return TCL_ERROR;
+    }
+
+    double xOrigin = 0.0, yOrigin = 0.0, xScale = 1.0, yScale = 1.0;
+    if (Tcl_GetDoubleFromObj(interp, objv[3], &xOrigin) != TCL_OK ||
+        Tcl_GetDoubleFromObj(interp, objv[4], &yOrigin) != TCL_OK ||
+        Tcl_GetDoubleFromObj(interp, objv[5], &xScale) != TCL_OK ||
+        Tcl_GetDoubleFromObj(interp, objv[6], &yScale) != TCL_OK) {
+        return TCL_ERROR;  // Tk set the error message
+    }
+
+    std::vector<int> ids;
+    if (!ResolveItemSpecs(widget, interp, objv, /*firstArg=*/2, /*limit=*/3, ids)) {
+        return TCL_ERROR;
+    }
+
+    for (int id : ids) {
+        CanvasItem* item = widget.model.FindItem(id);
+        if (!item) continue;
+        const BBox before = item->GetBBox();
+        const double width = item->Style().width;
+        item->Scale(xOrigin, yOrigin, xScale, yScale);
+        InvalidatePadded(widget, before, width);
+        InvalidateItem(widget, *item);
+    }
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+    return TCL_OK;
+}
+
+int TypeCmd(CanvasWidget& widget, Tcl_Interp* interp,
+            int objc, Tcl_Obj* const objv[]) {
+    if (objc != 3) {
+        Tcl_WrongNumArgs(interp, 2, objv, "tagOrId");
+        return TCL_ERROR;
+    }
+
+    std::vector<int> ids;
+    if (!ResolveItemSpecs(widget, interp, objv, /*firstArg=*/2, /*limit=*/3, ids)) {
+        return TCL_ERROR;
+    }
+
+    if (ids.empty()) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+        return TCL_OK;
+    }
+    CanvasItem* item = widget.model.FindItem(ids.front());
+    if (!item) return TCL_ERROR;
+    Tcl_SetObjResult(interp, Tcl_NewStringObj(item->Type().c_str(), -1));
+    return TCL_OK;
+}
+
 int DeleteCmd(CanvasWidget& widget, Tcl_Interp* interp,
               int objc, Tcl_Obj* const objv[]) {
     if (objc < 3) {
@@ -374,6 +429,7 @@ int DeleteCmd(CanvasWidget& widget, Tcl_Interp* interp,
         const BBox box = item->GetBBox();
         widget.model.DeleteItem(id);
         if (widget.currentItemId == id) widget.ClearCurrentItem();
+        if (widget.focusItemId == id) widget.focusItemId = CanvasModel::kInvalidId;
         InvalidatePadded(widget, box, width);
     }
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
@@ -541,6 +597,12 @@ int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
     if (cmd == "moveto") {
         return MoveToCmd(widget, interp, objc, objv);
     }
+    if (cmd == "scale") {
+        return ScaleCmd(widget, interp, objc, objv);
+    }
+    if (cmd == "type") {
+        return TypeCmd(widget, interp, objc, objv);
+    }
     if (cmd == "delete") {
         return DeleteCmd(widget, interp, objc, objv);
     }
@@ -573,6 +635,15 @@ int CanvasItemSubcommand(CanvasWidget& widget, Tcl_Interp* interp,
     }
     if (cmd == "scan") {
         return HandleScanCommand(widget, objc, objv);
+    }
+    if (cmd == "canvasx") {
+        return HandleCanvasXYCommand(widget, /*horizontal=*/true, objc, objv);
+    }
+    if (cmd == "canvasy") {
+        return HandleCanvasXYCommand(widget, /*horizontal=*/false, objc, objv);
+    }
+    if (cmd == "focus") {
+        return CanvasFocusSubcommand(widget, interp, objc, objv);
     }
 
     Tcl_SetObjResult(interp, Tcl_ObjPrintf("unknown widget subcommand \"%s\"", cmd.c_str()));

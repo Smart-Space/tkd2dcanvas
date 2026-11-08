@@ -27,6 +27,9 @@ public:
     virtual BBox GetBBox() const = 0;
     virtual void Translate(double dx, double dy) = 0;
 
+    virtual void Scale(double xOrigin, double yOrigin, double xScale, double yScale);
+    virtual bool SupportsInsertionCursor() const { return false; }
+
     // Distance from `p` to the item's outline; 0 when the point lies inside a
     // filled area of the item. The default implementation measures the
     // distance to the bounding box. Items with a real outline (rectangle,

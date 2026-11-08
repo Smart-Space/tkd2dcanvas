@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import itertools
 import tkinter
-from typing import Any, Callable, Optional, Sequence, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from ._loader import load_into
 from .errors import CommandError
 from .options import flatten_options, serialize_value
 
-_counter = itertools.count(1)
 _command_counter = itertools.count(1)
 
 # The substitutions Tk performs on a binding script before it is evaluated.
@@ -23,14 +22,14 @@ _SUBST_FORMAT = (
 _SUBST_FORMAT_STR = " ".join(_SUBST_FORMAT)
 
 
-def _parse_id_list(text: str) -> list[int]:
+def _parse_id_list(text: str) -> tuple[int, ...]:
     ids: list[int] = []
     for tok in text.split():
         try:
             ids.append(int(tok))
         except ValueError:
             pass
-    return ids
+    return tuple(ids)
 
 
 def _parse_bbox(text: str) -> Optional[Tuple[float, float, float, float]]:
@@ -43,7 +42,7 @@ def _parse_bbox(text: str) -> Optional[Tuple[float, float, float, float]]:
         return None
 
 
-def _make_event(canvas: "Canvas", args: Sequence[str]) -> Any:
+def _make_event(canvas: "Canvas", args: Any) -> Any:
     """Turns the substituted binding arguments into a tkinter.Event."""
     if len(args) != len(_SUBST_FORMAT):
         return args
@@ -88,7 +87,7 @@ def _make_event(canvas: "Canvas", args: Sequence[str]) -> Any:
     return event
 
 
-class Canvas:
+class Canvas(tkinter.Canvas):
     """Direct2D canvas widget; API-compatible subset of tkinter.Canvas.
 
     Coordinates follow Tk conventions. ``create_*`` methods accept either
@@ -97,49 +96,109 @@ class Canvas:
 
     def __init__(self, master: Optional[tkinter.Misc] = None, cnf: Optional[dict] = None, **kw: Any) -> None:
         if master is None:
-            master = tkinter._get_default_root()  # type: ignore[attr-defined]
+            master = tkinter._get_default_root()  # noqa: SLF001 - tkinter convention
             if master is None:
                 raise RuntimeError(
                     "no Tk root exists; create one with tkinter.Tk() first"
                 )
+        if kw:
+            cnf = {**(cnf or {}), **kw}
+        else:
+            cnf = dict(cnf or {})
         self.master = master
         load_into(master)
 
-        # Tcl commands registered for Python callbacks (see _register).
+        # Tcl commands registered for Python callbacks (see _register_callback).
         self._tcl_commands: list[str] = []
+        self.widgetName = "tkd2dcanvas"
 
-        options = dict(cnf or {})
-        options.update(kw)
-        args = ["tkd2dcanvas", self._new_path(master), *self._flatten_options(options)]
+        if "name" not in cnf:
+            stem = "tkd2dcanvas"
+            if master._last_child_ids is None:
+                master._last_child_ids = {}
+            count = master._last_child_ids.get(stem, 0) + 1
+            master._last_child_ids[stem] = count
+            cnf["name"] = f"!{stem}" if count == 1 else f"!{stem}{count}"
         try:
-            self._path = str(master.tk.call(*args))
+            tkinter.BaseWidget._setup(self, master, cnf)  # noqa: SLF001
+        except (KeyError, AttributeError) as exc:
+            raise CommandError(f"invalid master for tkd2dcanvas: {exc}") from exc
+
+        self._tclCommands = self._tcl_commands
+
+        options = self._flatten_options(cnf)
+        try:
+            path = str(self.master.tk.call("tkd2dcanvas", self._w, *options))
         except tkinter.TclError as exc:
+            self._unregister_from_master()
             raise CommandError(f"failed to create tkd2dcanvas widget: {exc}") from exc
+        if path != self._w:
+            self._unregister_from_master()
+            try:
+                self.master.tk.call("destroy", path)
+            except tkinter.TclError:
+                pass
+            raise CommandError(
+                f"tkd2dcanvas widget created at unexpected path {path!r}"
+            )
+
+    def _unregister_from_master(self) -> None:
+        """Removes the master.children entry _setup() made for us."""
+        sibling = self.master.children.get(self._name)
+        if sibling is self:
+            del self.master.children[self._name]
 
     # --- internals ----------------------------------------------------------
-    @staticmethod
-    def _new_path(master: tkinter.Misc) -> str:
-        # The widget path must be absolute for Tk ("." + name, not ".." + name).
-        name = f"tkd2dcanvas_{next(_counter)}"
-        base = master._w
-        return f".{name}" if base == "." else f"{base}.{name}"
-
     @property
     def tk_path(self) -> str:
-        return self._path
-
-    def __str__(self) -> str:  # tkinter compatibility: str(widget) == path
-        return self._path
+        return self._w
 
     def _call(self, *args: Any) -> str:
         try:
-            result = self.master.tk.call(self._path, *args)
+            result = self.master.tk.call(self._w, *args)
         except tkinter.TclError as exc:
             raise CommandError(str(exc)) from exc
         if isinstance(result, tuple):
             # A Tcl list comes back as a tuple of strings.
             return " ".join(str(part) for part in result)
-        return str(result)
+        if not isinstance(result, str):
+            return str(result)
+        return result
+
+    def _report_dict(self, *args: Any) -> dict[str, Any]:
+        """Reads a no-argument configure/itemconfigure report.
+
+        The native widget returns a Tcl dict; the empty string is returned
+        by ``itemconfigure`` when no item matches. Values are converted to
+        the Python type the Tcl runtime reports (int/float/str); anything
+        else is stringified. Option keys are returned without the leading
+        dash.
+        """
+        try:
+            result = self.master.tk.call(*args)
+        except tkinter.TclError as exc:
+            raise CommandError(str(exc)) from exc
+        if isinstance(result, str) and not result.strip():
+            return {}
+        try:
+            keys = self.master.tk.call("dict", "keys", result)
+        except tkinter.TclError as exc:
+            raise CommandError(f"unexpected report format: {result!r}") from exc
+        report: dict[str, Any] = {}
+        for key in keys:
+            name = str(key)
+            value = self.master.tk.call("dict", "get", result, key)
+            if not isinstance(value, (str, int, float)):
+                value = str(value)
+            report[name[1:] if name.startswith("-") else name] = value
+        return report
+
+    @staticmethod
+    def _coords(args: tuple) -> list[Any]:
+        # Accept both create_rectangle(x1, y1, x2, y2) and a single flat list.
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            return list(args[0])
+        return list(args)
 
     # --- item creation -------------------------------------------------------
     def create(self, itemtype: str, *coords: Any, **kw: Any) -> int:
@@ -161,19 +220,6 @@ class Canvas:
 
     def create_arc(self, *args: Any, **kw: Any) -> int:
         return self.create("arc", *self._coords(args), **kw)
-
-    def create_text(self, *args: Any, **kw: Any) -> int:
-        return self.create("text", *self._coords(args), **kw)
-
-    def create_image(self, *args: Any, **kw: Any) -> int:
-        return self.create("image", *self._coords(args), **kw)
-
-    @staticmethod
-    def _coords(args: Sequence[Any]) -> list[Any]:
-        # Accept both create_rectangle(x1, y1, x2, y2) and a single flat list.
-        if len(args) == 1 and isinstance(args[0], (list, tuple)):
-            return list(args[0])
-        return list(args)
 
     # --- coordinates ----------------------------------------------------------
     def coords(self, item: Any, *args: Any):
@@ -199,11 +245,17 @@ class Canvas:
 
     # --- options ----------------------------------------------------------------
     def itemconfigure(self, item: Any, cnf: Optional[dict] = None, **kw: Any):
-        if cnf:
-            kw = {**cnf, **kw}
-        if not kw:
-            return self._call("itemconfigure", serialize_value(item))
-        return self._call("itemconfigure", serialize_value(item), *self._flatten_options(kw))
+        if isinstance(cnf, str):
+            # itemconfigure(item, "width") — single option query.
+            report = self._report_dict(self._w, "itemconfigure", serialize_value(item))
+            if cnf.lstrip("-") not in report:
+                raise CommandError(f'unknown option "{cnf}"')
+            return report[cnf.lstrip("-")]
+        if cnf is not None or kw:
+            options = {**(cnf or {}), **kw}
+            self._call("itemconfigure", serialize_value(item), *self._flatten_options(options))
+            return None
+        return self._report_dict(self._w, "itemconfigure", serialize_value(item))
 
     itemconfig = itemconfigure
 
@@ -211,13 +263,23 @@ class Canvas:
         return self._call("itemcget", serialize_value(item), f"-{option.lstrip('-')}")
 
     def configure(self, cnf: Optional[dict] = None, **kw: Any):
-        if cnf:
-            kw = {**cnf, **kw}
-        if not kw:
-            return self._call("configure")
-        return self._call("configure", *self._flatten_options(kw))
+        if isinstance(cnf, str):
+            # configure("width") — single option query.
+            report = self._report_dict(self._w, "configure")
+            if cnf.lstrip("-") not in report:
+                raise CommandError(f'unknown option "{cnf}"')
+            return report[cnf.lstrip("-")]
+        if cnf is not None or kw:
+            options = {**(cnf or {}), **kw}
+            self._call("configure", *self._flatten_options(options))
+            return None
+        return self._report_dict(self._w, "configure")
 
     config = configure
+
+    def keys(self) -> list[str]:
+        """Option names of the widget, without the leading dash."""
+        return list(self.configure())
 
     def cget(self, option: str) -> str:
         return self._call("cget", f"-{option.lstrip('-')}")
@@ -226,25 +288,28 @@ class Canvas:
     def bbox(self, *items: Any) -> Optional[Tuple[float, float, float, float]]:
         return _parse_bbox(self._call("bbox", *[serialize_value(i) for i in items]))
 
-    def find_withtag(self, tag: Any) -> list[int]:
+    def find_withtag(self, tag: Any) -> tuple[int, ...]:
         return _parse_id_list(self._call("find", "withtag", serialize_value(tag)))
 
-    def find_all(self) -> list[int]:
+    def find_all(self) -> tuple[int, ...]:
         return _parse_id_list(self._call("find", "all"))
 
-    def find_closest(self, x: float, y: float, halo: Optional[float] = None) -> list[int]:
+    def find_closest(self, x: float, y: float, halo: Optional[float] = None,
+                     start: Any = None) -> tuple[int, ...]:
         args = [serialize_value(x), serialize_value(y)]
         if halo is not None:
             args.append(serialize_value(halo))
+        if start is not None:
+            args.append(serialize_value(start))
         return _parse_id_list(self._call("find", "closest", *args))
 
-    def find_overlapping(self, x1: float, y1: float, x2: float, y2: float) -> list[int]:
+    def find_overlapping(self, x1: float, y1: float, x2: float, y2: float) -> tuple[int, ...]:
         return _parse_id_list(
             self._call("find", "overlapping", serialize_value(x1), serialize_value(y1),
                        serialize_value(x2), serialize_value(y2))
         )
 
-    def find_enclosed(self, x1: float, y1: float, x2: float, y2: float) -> list[int]:
+    def find_enclosed(self, x1: float, y1: float, x2: float, y2: float) -> tuple[int, ...]:
         return _parse_id_list(
             self._call("find", "enclosed", serialize_value(x1), serialize_value(y1),
                        serialize_value(x2), serialize_value(y2))
@@ -256,6 +321,21 @@ class Canvas:
     def addtag_all(self, tag: Any) -> None:
         self._call("addtag", serialize_value(tag), "all")
 
+    def addtag_above(self, tag: Any, tagOrId: Any) -> None:
+        self._call("addtag", serialize_value(tag), "above", serialize_value(tagOrId))
+
+    def addtag_below(self, tag: Any, tagOrId: Any) -> None:
+        self._call("addtag", serialize_value(tag), "below", serialize_value(tagOrId))
+
+    def addtag_closest(self, tag: Any, x: float, y: float, halo: Any = None,
+                       start: Any = None) -> None:
+        args = ["closest", serialize_value(x), serialize_value(y)]
+        if halo is not None:
+            args.append(serialize_value(halo))
+        if start is not None:
+            args.append(serialize_value(start))
+        self._call("addtag", serialize_value(tag), *args)
+
     def addtag_overlapping(self, tag: Any, x1: float, y1: float, x2: float, y2: float) -> None:
         self._call("addtag", serialize_value(tag), "overlapping", serialize_value(x1),
                    serialize_value(y1), serialize_value(x2), serialize_value(y2))
@@ -264,11 +344,14 @@ class Canvas:
         self._call("addtag", serialize_value(tag), "enclosed", serialize_value(x1),
                    serialize_value(y1), serialize_value(x2), serialize_value(y2))
 
-    def dtag(self, item: Any, tag: Any) -> None:
-        self._call("dtag", serialize_value(item), serialize_value(tag))
+    def dtag(self, item: Any, tag: Any = None) -> None:
+        if tag is None:
+            self._call("dtag", serialize_value(item))
+        else:
+            self._call("dtag", serialize_value(item), serialize_value(tag))
 
-    def gettags(self, item: Any) -> list[str]:
-        return self._call("gettags", serialize_value(item)).split()
+    def gettags(self, item: Any) -> tuple[str, ...]:
+        return tuple(self._call("gettags", serialize_value(item)).split())
 
     def tag_raise(self, item: Any, aboveThis: Any = None) -> None:
         args = [serialize_value(item)]
@@ -301,21 +384,6 @@ class Canvas:
         """Moves the view by ``gain`` times the pointer distance since the mark."""
         self._call("scan", "dragto", int(x), int(y), int(gain))
 
-    # --- geometry proxies ---------------------------------------------------------
-    def pack(self, cnf: Optional[dict] = None, **kw: Any):
-        return self._geometry_cmd("pack", cnf, kw)
-
-    def grid(self, cnf: Optional[dict] = None, **kw: Any):
-        return self._geometry_cmd("grid", cnf, kw)
-
-    def place(self, cnf: Optional[dict] = None, **kw: Any):
-        return self._geometry_cmd("place", cnf, kw)
-
-    def _geometry_cmd(self, cmd: str, cnf: Optional[dict], kw: dict):
-        if cnf:
-            kw = {**cnf, **kw}
-        return self.master.tk.call(cmd, self._path, *self._flatten_options(kw))
-
     # --- events ------------------------------------------------------------------
     def tag_bind(self, tag: Any, sequence: Optional[str] = None,
                  func: Optional[Any] = None, add: Optional[bool] = None) -> Any:
@@ -328,7 +396,7 @@ class Canvas:
         the ones that are already bound to the sequence, otherwise it
         replaces them.  Without ``func`` the bound script is returned.
         """
-        return self._bind((self._path, "bind", serialize_value(tag)),
+        return self._bind((self._w, "bind", serialize_value(tag)),
                            sequence, func, add)
 
     def bind(self, sequence: Optional[str] = None, func: Optional[Any] = None,
@@ -339,7 +407,7 @@ class Canvas:
         the items of the canvas.  See :meth:`tag_bind` for the meaning of
         ``func`` and ``add``.
         """
-        return self._bind(("bind", self._path), sequence, func, add)
+        return self._bind(("bind", self._w), sequence, func, add)
 
     def tag_unbind(self, tag: Any, sequence: str, funcid: Optional[str] = None) -> None:
         """Removes the binding of ``sequence`` for a tag (or a single item).
@@ -347,7 +415,7 @@ class Canvas:
         With ``funcid`` only that single callback is removed, otherwise the
         whole binding of the sequence goes away.
         """
-        self._unbind((self._path, "bind", serialize_value(tag), sequence), funcid)
+        self._unbind((self._w, "bind", serialize_value(tag), sequence), funcid)
 
     def unbind(self, sequence: str, funcid: Optional[str] = None) -> None:
         """Removes the widget binding of ``sequence``.
@@ -355,7 +423,7 @@ class Canvas:
         With ``funcid`` only that single callback is removed, otherwise the
         whole binding of the sequence goes away.
         """
-        self._unbind(("bind", self._path, sequence), funcid)
+        self._unbind(("bind", self._w, sequence), funcid)
 
     def _bind(self, what: tuple, sequence: Optional[str], func: Any,
               add: Optional[bool]) -> Any:
@@ -365,7 +433,7 @@ class Canvas:
             self.master.tk.call(what + (sequence, func))
             return None
         if func:
-            funcid = self._register(func)
+            funcid = self._register_callback(func)
             script = ('%sif {"[%s %s]" == "break"} break\n'
                       % ("+" if add else "", funcid, _SUBST_FORMAT_STR))
             self.master.tk.call(what + (sequence, script))
@@ -393,7 +461,7 @@ class Canvas:
         self.master.tk.call(*what, keep)
         self._delete_command(funcid)
 
-    def _register(self, func: Callable[..., Any]) -> str:
+    def _register_callback(self, func: Callable[..., Any]) -> str:
         """Registers a Python callable as a Tcl command and returns its name.
 
         Every registration creates its own command (like tkinter does), so
@@ -442,12 +510,149 @@ class Canvas:
         if name in self._tcl_commands:
             self._tcl_commands.remove(name)
 
+    def addtag(self, *args: Any) -> None:
+        self._call("addtag", *[serialize_value(a) for a in args])
+
+    def find(self, *args: Any) -> tuple[int, ...]:
+        return _parse_id_list(self._call("find", *[serialize_value(a) for a in args]))
+
+    def focus(self, *args: Any) -> Any:
+        """Set or query the canvas item that has the keyboard focus.
+
+        Tk semantics (item ``focus``): with no argument, return the focus
+        item's id (``None`` when none has the focus). Otherwise set the
+        focus to the first matching item that supports the insertion cursor
+        (currently only text items — the native package has none yet, so a
+        non-empty selection is silently ignored, like Tk), or reset it when
+        ``args[0]`` is the empty string. Keyboard events are directed to
+        the focus item only.
+        """
+        if not args:
+            result = self._call("focus")
+            return int(result) if result else None
+        if len(args) != 1:
+            raise CommandError("focus takes at most one argument")
+        self._call("focus", serialize_value(args[0]))
+        return None
+
+    def find_above(self, item: Any) -> tuple[int, ...]:
+        return _parse_id_list(self._call("find", "above", serialize_value(item)))
+
+    def find_below(self, item: Any) -> tuple[int, ...]:
+        return _parse_id_list(self._call("find", "below", serialize_value(item)))
+
+    def findwithtag(self, tag: Any) -> tuple[int, ...]:
+        return self.find_withtag(tag)
+
+    def findall(self) -> tuple[int, ...]:
+        return self.find_all()
+
+    def findclosest(self, x: float, y: float, halo: Any = None,
+                    start: Any = None) -> tuple[int, ...]:
+        return self.find_closest(x, y, halo, start)
+
+    def tagbind(self, tag: Any, sequence: Any = None, func: Any = None,
+                add: Any = None) -> Any:
+        return self.tag_bind(tag, sequence, func, add)
+
+    def tagunbind(self, tag: Any, sequence: str, funcid: Any = None) -> None:
+        self.tag_unbind(tag, sequence, funcid)
+
+    # --- scaling / coordinate mapping / item type -----------------------------------
+    def scale(self, tagOrId: Any, xorigin: float, yorigin: float,
+              xscale: float, yscale: float) -> None:
+        """Scales the coordinates of all matching items (Tk's ``scale``)."""
+        self._call("scale", serialize_value(tagOrId), serialize_value(xorigin),
+                   serialize_value(yorigin), serialize_value(xscale),
+                   serialize_value(yscale))
+
+    def canvasx(self, screenx: Any, gridspacing: Any = None) -> float:
+        """Maps a window x-coordinate to a canvas x-coordinate (Tk semantics).
+
+        With ``gridspacing`` > 0 the result is snapped to the nearest multiple
+        of it (halves away from zero).
+        """
+        args = [serialize_value(screenx)]
+        if gridspacing is not None:
+            args.append(serialize_value(gridspacing))
+        return float(self._call("canvasx", *args))
+
+    def canvasy(self, screeny: Any, gridspacing: Any = None) -> float:
+        """Maps a window y-coordinate to a canvas y-coordinate (Tk semantics).
+
+        With ``gridspacing`` > 0 the result is snapped to the nearest multiple
+        of it (halves away from zero).
+        """
+        args = [serialize_value(screeny)]
+        if gridspacing is not None:
+            args.append(serialize_value(gridspacing))
+        return float(self._call("canvasy", *args))
+
+    def type(self, tagOrId: Any) -> Optional[str]:
+        """Returns the type of the first matching item, or None if there is no match."""
+        result = self._call("type", serialize_value(tagOrId))
+        return result if result else None
+
+    lift = tkraise = tag_raise
+    lower = tag_lower
+
+    # --- not implemented (see docs/tk_canvas_compat_matrix.md) --------------------
+    def _unimplemented(self, name: str, milestone: str) -> Any:
+        raise NotImplementedError(
+            f"Canvas.{name} is not implemented yet "
+            f"({milestone}); see docs/tk_canvas_compat_matrix.md"
+        )
+
+    def create_bitmap(self, *args: Any, **kw: Any) -> int:
+        self._unimplemented("create_bitmap", "milestone M9")
+
+    def create_image(self, *args: Any, **kw: Any) -> int:
+        self._unimplemented("create_image", "milestone M9")
+
+    def create_text(self, *args: Any, **kw: Any) -> int:
+        self._unimplemented("create_text", "milestone M9")
+
+    def create_window(self, *args: Any, **kw: Any) -> int:
+        self._unimplemented("create_window", "milestone M10")
+
+    def dchars(self, *args: Any):
+        self._unimplemented("dchars", "milestone M9")
+
+    def icursor(self, *args: Any):
+        self._unimplemented("icursor", "milestone M9")
+
+    def index(self, *args: Any):
+        self._unimplemented("index", "milestone M9")
+
+    def insert(self, *args: Any):
+        self._unimplemented("insert", "milestone M9")
+
+    def postscript(self, *args: Any, **kw: Any):
+        self._unimplemented("postscript", "明确不支持（打印路径不计划）")
+
+    def select_adjust(self, *args: Any):
+        self._unimplemented("select_adjust", "selection item 未实现")
+
+    def select_clear(self, *args: Any):
+        self._unimplemented("select_clear", "selection item 未实现")
+
+    def select_from(self, *args: Any):
+        self._unimplemented("select_from", "selection item 未实现")
+
+    def select_item(self, *args: Any):
+        self._unimplemented("select_item", "selection item 未实现")
+
+    def select_to(self, *args: Any):
+        self._unimplemented("select_to", "selection item 未实现")
+
     # --- lifecycle -----------------------------------------------------------------
     def destroy(self) -> None:
         for name in list(self._tcl_commands):
             self._delete_command(name)
         self._tcl_commands.clear()
         try:
-            self.master.tk.call("destroy", self._path)
+            self.master.tk.call("destroy", self._w)
         except tkinter.TclError:
             pass  # already gone
+        self._unregister_from_master()
+        tkinter.Misc.destroy(self)

@@ -61,6 +61,10 @@ struct CanvasWidget {
 
     Tk_BindingTable bindingTable = nullptr;
     int currentItemId = CanvasModel::kInvalidId;
+    // Tk: the item that receives keyboard events (".c focus <tagOrId>").
+    // Only items supporting the insertion cursor may hold the focus; it is
+    // cleared when the item is deleted.
+    int focusItemId = CanvasModel::kInvalidId;
     // Per item binding objects
     std::unordered_map<int, ClientData> itemBindingObjects;
     // The event patterns bound to a binding object.

@@ -1,5 +1,6 @@
 #include "CanvasScrollBridge.h"
 
+#include <cmath>
 #include <string>
 
 #include "tkd2dcanvas/CanvasView.h"
@@ -159,6 +160,42 @@ int HandleScanCommand(CanvasWidget& widget, int objc, Tcl_Obj* const objv[]) {
     widget.RepaintAfterScroll(oldX, oldY);
     RequestScrollbarUpdate(widget);
     Tcl_SetObjResult(interp, Tcl_NewStringObj("", -1));
+    return TCL_OK;
+}
+
+int HandleCanvasXYCommand(CanvasWidget& widget, bool horizontal, int objc, Tcl_Obj* const objv[]) {
+    Tcl_Interp* interp = widget.interp;
+    CanvasView& view = widget.model.View();
+    const std::string what = horizontal ? "canvasx" : "canvasy";
+    const std::string name = horizontal ? "x" : "y";
+
+    if (objc < 3 || objc > 4) {
+        Tcl_WrongNumArgs(interp, 2, objv,
+                         (what + " screen" + name + " ?gridspacing?").c_str());
+        return TCL_ERROR;
+    }
+
+    double value = 0.0;
+    if (Tcl_GetDoubleFromObj(interp, objv[2], &value) != TCL_OK) {
+        return TCL_ERROR;  // Tk set the error message
+    }
+
+    double gridspacing = 0.0;
+    if (objc == 4) {
+        if (Tcl_GetDoubleFromObj(interp, objv[3], &gridspacing) != TCL_OK) {
+            return TCL_ERROR;  // Tk set the error message
+        }
+        if (gridspacing <= 0.0) {
+            gridspacing = 0.0;  // Tk: zero/negative gridspacing disables the snap
+        }
+    }
+
+    const double origin = horizontal ? view.XOffset() : view.YOffset();
+    double out = value + origin;
+    if (gridspacing > 0.0) {
+        out = std::round(out / gridspacing) * gridspacing;
+    }
+    Tcl_SetObjResult(interp, Tcl_NewDoubleObj(out));
     return TCL_OK;
 }
 

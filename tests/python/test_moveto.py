@@ -92,8 +92,8 @@ def test_find_overlapping_uses_stroke_not_bbox(canvas):
     # 1px-padded filter. A probe overlapping only the bbox pad — but not the
     # stroke — must not report the line.
     item = canvas.create_line(20, 20, 100, 20, width=2, tags="stroke")
-    assert canvas.find_overlapping(16, 16, 19, 19) == []
-    assert canvas.find_overlapping(18, 22, 18, 23) == []
-    assert canvas.find_overlapping(18, 19, 30, 21) == [item]
-    assert canvas.find_enclosed(0, 0, 200, 200) == [item]
-    assert canvas.find_enclosed(0, 0, 50, 18) == []
+    assert canvas.find_overlapping(16, 16, 19, 19) == ()
+    assert canvas.find_overlapping(18, 22, 18, 23) == ()
+    assert canvas.find_overlapping(18, 19, 30, 21) == (item,)
+    assert canvas.find_enclosed(0, 0, 200, 200) == (item,)
+    assert canvas.find_enclosed(0, 0, 50, 18) == ()
