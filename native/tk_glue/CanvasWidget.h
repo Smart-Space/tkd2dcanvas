@@ -112,7 +112,9 @@ struct CanvasWidget {
     // value. When the shift is an integral number of pixels that fits inside
     // the window, the window pixels and the retained back buffer are scrolled
     // and only the newly exposed strips (plus any damage that was pending
-    // before the change) are invalidated.
+    // before the change) are invalidated. Everything else falls back to a
+    // full repaint. The window is repainted synchronously before the call
+    // returns, so no stale (unpainted) strips are ever visible.
     void RepaintAfterScroll(double oldX, double oldY);
 
     // Picks the item under the given (widget local) coordinates and makes it

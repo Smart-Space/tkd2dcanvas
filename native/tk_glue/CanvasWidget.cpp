@@ -393,10 +393,15 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
 
     if (deltaX == 0.0 && deltaY == 0.0) return;
 
+    auto fallbackFullRepaint = [this]() {
+        Invalidate();
+        UpdateWindow(hwnd);
+    };
+
     const double roundedX = std::round(deltaX);
     const double roundedY = std::round(deltaY);
     if (deltaX != roundedX || deltaY != roundedY) {
-        Invalidate();
+        fallbackFullRepaint();
         return;
     }
 
@@ -404,7 +409,7 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
     const int dy = static_cast<int>(roundedY);
     if ((dx == 0 && dy == 0) ||
         std::abs(dx) >= pixelWidth || std::abs(dy) >= pixelHeight) {
-        Invalidate();
+        fallbackFullRepaint();
         return;
     }
 
@@ -418,7 +423,7 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
     }
     const long long windowArea = static_cast<long long>(pixelWidth) * static_cast<long long>(pixelHeight);
     if (windowArea <= 0 || pendingArea * 2 >= windowArea) {
-        Invalidate();
+        fallbackFullRepaint();
         return;
     }
 
@@ -426,13 +431,13 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
     const int shiftY = -dy;
 
     if (!surface.ScrollContent(shiftX, shiftY)) {
-        Invalidate();
+        fallbackFullRepaint();
         return;
     }
 
     if (ScrollWindowEx(hwnd, shiftX, shiftY, nullptr, nullptr, nullptr, nullptr,
                        SW_SCROLLCHILDREN | SW_INVALIDATE) == ERROR) {
-        Invalidate();
+        fallbackFullRepaint();
         return;
     }
 
@@ -461,6 +466,8 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
         const BBox box{rect.left + oldX, rect.top + oldY, rect.right - 1 + oldX, rect.bottom - 1 + oldY};
         Invalidate(box);
     }
+
+    UpdateWindow(hwnd);
 }
 
 }  // namespace tkd2dcanvas

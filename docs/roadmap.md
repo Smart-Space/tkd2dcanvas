@@ -63,6 +63,7 @@
   - 顺带实现 `scan mark` / `scan dragto ?gain?`（Tk canvas 滚动命令的其余部分）
   - 顺带修复了隐患：创建期 option 校验失败的 widget（如 `-scrollregion` 解析失败）没有走完整析构路径，pending idle 回调会指向已释放对象，统一改为 `AbortCreate`
 - [x] 滚动帧增量重绘：`ScrollWindowEx` + 后备缓冲 `BitBlt` 位移，只重画新暴露条带；M10 落地时必须重新验证`SW_SCROLLCHILDREN` 与子窗口跟随
+  - 残影修复：条带标记后立即 `UpdateWindow` 同步重绘，避免延迟 WM_PAINT 期间显示旧像素
 
 ## 阶段 7：Python 包装（M8）✅ 完成（2026-11-08）
 

@@ -58,7 +58,7 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
     （`pushClip` 取交集，`popClip` 恢复）。
   - 抗锯齿：`SetAntialiasMode(PER_PRIMITIVE)`，文字 ClearType。
   - 断设备（`D2DERR_RECREATE_TARGET`）：自动丢弃 render target，下一帧重建。
-- `Win32Surface`：32bpp 双缓冲 + D2D 绘制 + `BitBlt`；由 Tk 的Expose/Configure 事件驱动 `Paint()`。`WM_PAINT` 使用精确的 update region 矩形列表（不是包围盒）；滚动时先用 `ScrollWindowEx` + 后备缓冲`ScrollContent` 平移像素，再只重画新暴露条带。
+- `Win32Surface`：32bpp 双缓冲 + D2D 绘制 + `BitBlt`；由 Tk 的Expose/Configure 事件驱动 `Paint()`。`WM_PAINT` 使用精确的 update region 矩形列表（不是包围盒）；滚动时先用 `ScrollWindowEx` + 后备缓冲`ScrollContent` 平移像素，再只重画新暴露条带；滚动命令内还会用 `UpdateWindow` 强制同步绘制，避免条带在延迟绘制前显示旧内容。
 - `D2DRenderer` 的 DC 绑定在 HDC/尺寸不变时跨帧复用；后备缓冲重建时由`Win32Surface` 调 `ResetBinding()` 强制重新 `BindDC`。
 - `tk_glue`：`Tkd2dcanvas_Init`（package 入口，初始化 D2D/DWrite
   factory）、`tkd2dcanvas` 全局命令、`CanvasWidget`、各子命令分发。
