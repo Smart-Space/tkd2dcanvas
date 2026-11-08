@@ -163,7 +163,10 @@ test bind-dispatch-item-binding "a binding on an item id fires for that item" -b
     set ::hits
 } -result {ITEM}
 
-test bind-dispatch-key "key bindings fire when the canvas has the focus" -body {
+if {[tk windowingsystem] eq ""} {
+    ::tcltest::constraint tkdisplay 0
+}
+test bind-dispatch-key "key bindings fire when the canvas has the focus" -constraints {tkdisplay} -body {
     clearBindings
     .c delete all
     set ::hits {}
