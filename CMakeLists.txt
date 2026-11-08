@@ -110,6 +110,8 @@ add_library(tkd2dcanvas SHARED
     native/tk_glue/CanvasTkColor.cpp
     native/tk_glue/CanvasTkFont.cpp
     native/tk_glue/CanvasTkImage.cpp
+    native/tk_glue/TkBuiltinBitmaps.cpp
+    native/tk_glue/CanvasTextMetrics.cpp
     native/tk_glue/CanvasTkWindowItem.cpp
     native/tk_glue/WindowHook.cpp
 )
@@ -186,6 +188,9 @@ if(TKG_BUILD_TESTS AND WIN32)
         native/items/LineItem.cpp
         native/items/PolygonItem.cpp
         native/items/ArcItem.cpp
+        native/items/TextItem.cpp
+        native/items/ImageItem.cpp
+        native/items/BitmapItem.cpp
         native/items/ItemRegistrations.cpp
     )
     add_executable(test_item_hit tests/cpp/test_item_hit.cpp ${TKG_CORE_SOURCES} ${TKG_ITEM_SOURCES})

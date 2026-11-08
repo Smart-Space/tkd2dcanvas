@@ -199,6 +199,7 @@ def test_tk4_aliases(canvas):
 def test_unimplemented_surface_raises_not_implemented():
     # These are valid tkinter.Canvas names, but the native package has no
     # implementation for them; they must raise a clear Python error.
+    # (create_text / create_image / create_bitmap are implemented since M9.)
     from tkd2dcanvas import Canvas
 
     assert callable(Canvas.create_window)
@@ -210,8 +211,6 @@ def test_unimplemented_surface_raises_not_implemented():
 def test_unimplemented_surface_calls_raise(canvas):
     with pytest.raises(NotImplementedError):
         canvas.create_window(0, 0)
-    with pytest.raises(NotImplementedError):
-        canvas.create_text(0, 0, text="hi")
     with pytest.raises(NotImplementedError):
         canvas.postscript()
     with pytest.raises(NotImplementedError):

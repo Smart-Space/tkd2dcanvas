@@ -11,6 +11,9 @@
 #include "LineItem.h"
 #include "PolygonItem.h"
 #include "ArcItem.h"
+#include "TextItem.h"
+#include "ImageItem.h"
+#include "BitmapItem.h"
 
 namespace tkd2dcanvas {
 
@@ -69,6 +72,33 @@ CanvasItemPtr MakeLine(CanvasItem::Id id, const std::vector<double>& coords) {
     return std::make_unique<LineItem>(id, std::move(points));
 }
 
+CanvasItemPtr MakeText(CanvasItem::Id id, const std::vector<double>& coords) {
+    if (coords.size() != 2) {
+        throw std::invalid_argument("wrong # coordinates: expected 2 (x y), got " +
+                                    std::to_string(coords.size()));
+    }
+    // Tk canvas text defaults to black fill; the text itself arrives via -text.
+    return std::make_unique<TextItem>(id, coords[0], coords[1], "");
+}
+
+CanvasItemPtr MakeImage(CanvasItem::Id id, const std::vector<double>& coords) {
+    if (coords.size() != 2) {
+        throw std::invalid_argument("wrong # coordinates: expected 2 (x y), got " +
+                                    std::to_string(coords.size()));
+    }
+    // The photo name arrives via -image.
+    return std::make_unique<ImageItem>(id, coords[0], coords[1], "");
+}
+
+CanvasItemPtr MakeBitmap(CanvasItem::Id id, const std::vector<double>& coords) {
+    if (coords.size() != 2) {
+        throw std::invalid_argument("wrong # coordinates: expected 2 (x y), got " +
+                                    std::to_string(coords.size()));
+    }
+    // The bitmap name arrives via -bitmap.
+    return std::make_unique<BitmapItem>(id, coords[0], coords[1], "");
+}
+
 }  // namespace
 
 void RegisterBuiltinItems() {
@@ -78,6 +108,9 @@ void RegisterBuiltinItems() {
     factory.Register("line", &MakeLine);
     factory.Register("polygon", &MakePolygon);
     factory.Register("arc", &MakeArc);
+    factory.Register("text", &MakeText);
+    factory.Register("image", &MakeImage);
+    factory.Register("bitmap", &MakeBitmap);
 }
 
 }  // namespace tkd2dcanvas

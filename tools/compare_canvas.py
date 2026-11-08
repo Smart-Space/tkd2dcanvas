@@ -68,6 +68,12 @@ def draw_scene(canvas):
             item(canvas.create_text, x1 + 4, y + 5, anchor="nw",
                  text=str(y), fill="#909098", font=("Segoe UI", 8))
 
+    logo = tkinter.PhotoImage(file=str(_ROOT / "docs" / "logo.png")).subsample(4, 4)
+    if not hasattr(canvas, "_compare_photos"):
+        canvas._compare_photos = []
+    canvas._compare_photos.append(logo)
+    item(canvas.create_image, 760, 60, image=logo, anchor="nw")
+
     # Filled rectangle / oval, shared with examples/python/basic_shapes.py.
     item(canvas.create_rectangle, 20, 20, 200, 120,
          fill="tomato", outline="navy", width=2)
@@ -88,7 +94,7 @@ def draw_scene(canvas):
 
     # Polygon and arc (pie slice) with an outline.
     item(canvas.create_polygon, 460, 40, 600, 120, 460, 200,
-         fill="gold", outline="darkgreen", width=2)
+         fill="gold", outline="darkgreen", width=9)
     item(canvas.create_arc, 20, 440, 220, 640, start=30, extent=90,
          style="pieslice", fill="orchid", outline="purple")
 
@@ -96,7 +102,7 @@ def draw_scene(canvas):
     item(canvas.create_text, 440, 260, anchor="nw", fill="black",
          text="anchor nw / Segoe UI 14", font=("Segoe UI", 14))
     item(canvas.create_text, 640, 200, anchor="ne", fill="#404040",
-         text="anchor ne\n两行中文",
+         text="anchor ne\n两行中文，更长文本自动换行", width=120,
          font=("Microsoft YaHei", 12), justify="right")
     item(canvas.create_text, 500, 340, anchor="center", fill="crimson",
          text="anchor center",

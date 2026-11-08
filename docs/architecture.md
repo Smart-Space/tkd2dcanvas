@@ -51,9 +51,7 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
     （`Win32DoubleBuffer` 按此实现）→ 渲染完成后 `BitBlt` 到目标 DC，无闪烁。
   - 平滑曲线：`-smooth` 走 `SmoothCurve`（`native/core`，直译 Tk 的`TkMakeBezierCurve`/`TkMakeRawCurve`）预先展开成折线再交给 D2D。
   - 虚线：`PenCache` 缓存 `ID2D1StrokeStyle`；D2D 的 dash 数组与dashOffset 均以 stroke width 为单位，`PenCache` 把 Tk 的绝对canvas 单位（-dash / -dashoffset）除以线宽后传入。
-  - 文字：DirectWrite（`IDWriteTextLayout`，按行绘制，支持
-    bold/italic/underline/strikethrough 与 Tk anchor 九宫格定位），
-    字体走 `FontCache`（`IDWriteTextFormat` 缓存）。
+  - 文字：DirectWrite（`IDWriteTextLayout`，按行绘制，支持bold/italic/underline/strikethrough、Tk anchor 九宫格定位与 `-angle` 旋转）；
   - 裁剪：`SetAxisAlignedClip` / `ResetAxisAlignedClip`，支持嵌套 push/pop
     （`pushClip` 取交集，`popClip` 恢复）。
   - 抗锯齿：`SetAntialiasMode(PER_PRIMITIVE)`，文字 ClearType。
@@ -99,7 +97,5 @@ Tk/Win 上**每个 Tk widget 都拥有一个自己的 Win32 子窗口**（类名
 ## 已知取舍（0.x）
 
 - `create_window`（WindowItem）不支持，列入 M10。
-- 图像：`drawImage` 已按 `ID2D1Bitmap*` 实现并处理 transform；Tk photo →
-  D2D bitmap 的转换在 M9（`TkPhotoToRgba` 尚未实现）。
+- 图像：bitmap 按 item id+generation 缓存，上限 64 项）。photo 在配置时拷贝，photo 后续内容变更不自动反映到 canvas。
 - D2D 单线程 factory（Tk 主线程）；跨线程访问需改 `FACTORY_TYPE_MULTI_THREADED`。
-- 文字逐行测布局，行高 = `-font` 尺寸 ×1.25（或 `-linespacing` 覆盖，M9）。

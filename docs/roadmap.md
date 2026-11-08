@@ -73,11 +73,11 @@
 - [x] `scale` / `canvasx` / `canvasy` / `type` / `focus`
 - [x] 未实现的 tkinter.Canvas 方法显式抛 `NotImplementedError`（不依赖缺失的 Tcl 子命令）
 
-## 阶段 8：图像与文字增强（M9）
+## 阶段 8：图像与文字增强（M9）✅ 已完成（2026-11-08）
 
-- [ ] `create_text` 完整（font/anchor/justify/width/wrap）
-- [ ] `create_image`（Tk photo → D2D bitmap）
-- [ ] font 解析（`font actual`）、`create_bitmap`
+- [x] `create_text` 完整（font/anchor/justify/width/wrap）
+- [x] `create_image`（Tk photo → D2D bitmap）
+- [x] font 解析（`font actual`）、`create_bitmap`
 
 ## 阶段 9：Window item（M10）
 

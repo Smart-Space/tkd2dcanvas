@@ -596,36 +596,59 @@ class Canvas(tkinter.Canvas):
     lift = tkraise = tag_raise
     lower = tag_lower
 
-    # --- not implemented (see docs/tk_canvas_compat_matrix.md) --------------------
     def _unimplemented(self, name: str, milestone: str) -> Any:
         raise NotImplementedError(
             f"Canvas.{name} is not implemented yet "
             f"({milestone}); see docs/tk_canvas_compat_matrix.md"
         )
 
-    def create_bitmap(self, *args: Any, **kw: Any) -> int:
-        self._unimplemented("create_bitmap", "milestone M9")
+    def create_text(self, *args: Any, **kw: Any) -> int:
+        """Create a text item at ``x, y`` (or a single ``(x, y)`` pair).
+
+        Supports the Tk canvas text options: ``-text``, ``-font``,
+        ``-fill``, ``-anchor``, ``-justify`` (left/center/right), ``-width``
+        (word-wrap length in pixels; 0 disables wrapping) and ``-wrap``
+        (word/char/none), plus ``-tags``.
+        """
+        return self.create("text", *self._coords(args), **kw)
 
     def create_image(self, *args: Any, **kw: Any) -> int:
-        self._unimplemented("create_image", "milestone M9")
+        """Create an image item at ``x, y`` referencing a Tk photo image.
 
-    def create_text(self, *args: Any, **kw: Any) -> int:
-        self._unimplemented("create_text", "milestone M9")
+        The ``image`` option names a Tk photo image (e.g. a
+        :class:`tkinter.PhotoImage`, which serializes to its registered
+        name). Pixels are copied when the option is applied; later edits
+        to the photo are not reflected until the option is configured
+        again.
+        """
+        return self.create("image", *self._coords(args), **kw)
 
+    def create_bitmap(self, *args: Any, **kw: Any) -> int:
+        """Create a bitmap item at ``x, y`` from an XBM bitmap.
+
+        ``bitmap`` is either one of Tk's predefined names
+        (``error``/``gray12``/``gray25``/``gray50``/``gray75``/``hourglass``/
+        ``info``/``questhead``/``question``/``warning``) or ``@file.xbm``.
+        The ``foreground``/``background`` colors paint the set/clear bits;
+        an empty background means transparent.
+        """
+        return self.create("bitmap", *self._coords(args), **kw)
+
+    # --- not implemented (see docs/tk_canvas_compat_matrix.md) --------------------
     def create_window(self, *args: Any, **kw: Any) -> int:
         self._unimplemented("create_window", "milestone M10")
 
     def dchars(self, *args: Any):
-        self._unimplemented("dchars", "milestone M9")
+        self._unimplemented("dchars", "text item 编辑命令未实现")
 
     def icursor(self, *args: Any):
-        self._unimplemented("icursor", "milestone M9")
+        self._unimplemented("icursor", "text item 编辑命令未实现")
 
     def index(self, *args: Any):
-        self._unimplemented("index", "milestone M9")
+        self._unimplemented("index", "text item 编辑命令未实现")
 
     def insert(self, *args: Any):
-        self._unimplemented("insert", "milestone M9")
+        self._unimplemented("insert", "text item 编辑命令未实现")
 
     def postscript(self, *args: Any, **kw: Any):
         self._unimplemented("postscript", "明确不支持（打印路径不计划）")

@@ -528,7 +528,9 @@ int ItemCgetCmd(CanvasWidget& widget, Tcl_Interp* interp,
     }
     static const char* kOptions[] = {"fill", "outline", "width", "dash", "dashoffset", "tags",
                                      "start", "extent", "style", "joinstyle", "capstyle",
-                                     "smooth", "splinesteps"};
+                                     "smooth", "splinesteps",
+                                     "text", "font", "anchor", "justify", "wrap",
+                                     "image", "bitmap", "foreground", "background", "angle"};
     bool known = false;
     for (const char* option : kOptions) {
         if (name == option) { known = true; break; }

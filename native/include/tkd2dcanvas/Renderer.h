@@ -44,7 +44,20 @@ struct TextLayout {
     Point origin;                    // anchor point in canvas coords
     std::string anchor = "nw";       // Tk anchor: n/ne/e/se/s/sw/w/nw/c
     double lineSpacing = 0.0;        // 0 = font default
+    std::string justify = "left";    // left|center|right; lines are aligned within blockWidth
+    double blockWidth = 0.0;         // 0 = widest line at draw time
+    double angle = 0.0;              // degrees, counter-clockwise around `origin` (Tk -angle)
+    std::vector<double> lineWidths;
 };
+
+// Vertical metric shared by the text item's bbox and the renderer, so the
+// two never disagree on block height.
+inline constexpr double kTextLineHeightFactor = 1.25;
+
+inline double TextLineHeight(double fontSize) {
+    const double height = fontSize * kTextLineHeightFactor;
+    return height > 0.0 ? height : fontSize;
+}
 
 // Opaque image handle. Image data is owned by the Tk image subsystem
 // (CanvasTkImage) or by the app; the renderer only borrows it.
@@ -52,6 +65,10 @@ struct ImageRef {
     const void* handle = nullptr;  // renderer-defined (e.g. ID2D1Bitmap*)
     int width = 0;
     int height = 0;
+    const unsigned char* pixels = nullptr;
+    int stride = 0;  // bytes per row; 0 = width * 4
+    const void* cacheKey = nullptr;
+    unsigned generation = 0;
 };
 
 class Renderer {

@@ -115,6 +115,5 @@ t = canvas.type("all") # 首个匹配 item 的类型；无匹配返回 None
   （`{选项名: 当前值}`），而不是 tkinter 的 `{name: (name, ..., 当前值)}`，
   键不带 `-` 前缀。
 - 明确未实现（调用会抛 `NotImplementedError`）：
-  `create_bitmap`/`create_image`/`create_text`/`create_window`、
-  `postscript`、`select_*`、`dchars`/`icursor`/`index`/`insert` 等文字 item 命令。
+  `create_window`、`postscript`、`select_*`、`dchars`/`icursor`/`index`/`insert` 等文字 item 命令。
 - 完整矩阵见 [tk_canvas_compat_matrix.md](tk_canvas_compat_matrix.md)。

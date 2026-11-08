@@ -7,12 +7,21 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #include "D2DContext.h"
 #include "FontCache.h"
 #include "PenCache.h"
 #include "Utf16.h"
+#include "tkd2dcanvas/Anchor.h"
+
+struct CachedBitmap {
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    double width = 0.0;
+    double height = 0.0;
+};
 
 // Concrete Direct2D state. Kept out of the header so <d2d1.h> does not leak.
 struct D2DRendererImpl {
@@ -27,6 +36,10 @@ struct D2DRendererImpl {
     int boundHeight = 0;
     int clipDepth = 0;  // number of active axis-aligned clips (nested = intersected)
     std::vector<D2D1_MATRIX_3X2_F> transformStack;  // world transforms saved by pushTranslate
+    // Bitmaps created from raw RGBA pixels (Tk photo / XBM items), keyed by
+    // (cacheKey << 32) | generation. Bounded; entries are simply dropped
+    // when the map grows past the limit and rebuilt on demand.
+    std::unordered_map<std::uint64_t, CachedBitmap> bitmapCache;
 };
 
 D2DRenderer::D2DRenderer() : impl_(std::make_unique<D2DRendererImpl>()) {}
@@ -111,6 +124,7 @@ void D2DRenderer::Detach() {
         if (hr == D2DERR_RECREATE_TARGET) {
             // Device lost: drop the render target; next AttachToHdc recreates it.
             impl_->brush.Reset();
+            impl_->bitmapCache.clear();
             impl_->rt.Reset();
             impl_->boundDc = nullptr;
             impl_->boundWidth = 0;
@@ -130,6 +144,7 @@ void D2DRenderer::ResetBinding() {
     if (impl_->frameOpen && impl_->rt) {
         if (impl_->rt->EndDraw() == D2DERR_RECREATE_TARGET) {
             impl_->brush.Reset();
+            impl_->bitmapCache.clear();
             impl_->rt.Reset();
         }
         impl_->frameOpen = false;
@@ -243,30 +258,69 @@ void D2DRenderer::drawText(const TextLayout& layout, const TextStyle& style) {
 
     const float lineHeight = layout.lineSpacing > 0.0
         ? static_cast<float>(layout.lineSpacing)
-        : size * 1.25f;
+        : static_cast<float>(TextLineHeight(size));
     const float blockHeight = lineHeight * static_cast<float>(layout.lines.size());
 
-    const std::string anchor = layout.anchor.empty() ? "nw" : layout.anchor;
+    std::vector<double> lineWidths;
+    lineWidths.reserve(layout.lines.size());
+    double measuredBlockWidth = 0.0;
+    if (layout.lineWidths.size() == layout.lines.size()) {
+        lineWidths = layout.lineWidths;
+        for (const double w : lineWidths) {
+            measuredBlockWidth = std::max(measuredBlockWidth, w);
+        }
+    } else {
+        for (const std::string& line : layout.lines) {
+            const std::wstring wideLine = Utf8ToWide(line);
+            double lineWidth = 0.0;
+            if (!wideLine.empty()) {
+                Microsoft::WRL::ComPtr<IDWriteTextLayout> metricsLayout;
+                HRESULT hr = writeFactory->CreateTextLayout(
+                    wideLine.c_str(), static_cast<UINT32>(wideLine.size()),
+                    format.Get(), 1.0e6f, 1.0e4f, &metricsLayout);
+                if (SUCCEEDED(hr) && metricsLayout) {
+                    DWRITE_TEXT_METRICS metrics{};
+                    metricsLayout->GetMetrics(&metrics);
+                    lineWidth = static_cast<double>(metrics.width);
+                }
+            }
+            lineWidths.push_back(lineWidth);
+            measuredBlockWidth = std::max(measuredBlockWidth, lineWidth);
+        }
+    }
+    const double blockWidth = layout.blockWidth > 0.0 ? layout.blockWidth : measuredBlockWidth;
 
-    const auto horizontal = [&]() {
-        if (anchor == "nw" || anchor == "w" || anchor == "sw") return 0;  // left
-        if (anchor == "n" || anchor == "c" || anchor == "s") return 1;    // center
-        return 2;                                                          // right
-    };
-    const auto vertical = [&]() {
-        if (anchor == "nw" || anchor == "n" || anchor == "ne") return 0;  // top
-        if (anchor == "w" || anchor == "c" || anchor == "e") return 1;    // middle
-        return 2;                                                          // bottom
-    };
-
-    const int ha = horizontal();
-    const int va = vertical();
-
-    float blockTop = static_cast<FLOAT>(layout.origin.y);
-    if (va == 1) blockTop -= blockHeight * 0.5f;
-    else if (va == 2) blockTop -= blockHeight;
+    const std::string justify = layout.justify.empty() ? "left" : layout.justify;
 
     impl_->brush->SetColor(ToD2DColor(style.color));
+
+    const double angle = layout.angle;
+    const std::string anchor = layout.anchor.empty() ? "nw" : layout.anchor;
+    Point topLeft = AnchorTopLeft(anchor, layout.origin.x, layout.origin.y,
+                                  blockWidth, static_cast<double>(blockHeight));
+
+    D2D1_MATRIX_3X2_F savedTransform{};
+    if (angle != 0.0) {
+        const double radians = angle * (3.14159265358979323846 / 180.0);
+        const FLOAT cosA = static_cast<FLOAT>(std::cos(radians));
+        const FLOAT sinA = static_cast<FLOAT>(std::sin(radians));
+
+        const double offsetX = AnchorOffsetX(anchor, blockWidth);
+        const double offsetY = AnchorOffsetY(anchor, blockHeight);
+        const double ox = layout.origin.x + offsetX * cosA + offsetY * sinA;
+        const double oy = layout.origin.y + offsetY * cosA - offsetX * sinA;
+
+        impl_->rt->GetTransform(&savedTransform);
+        const D2D1::Matrix3x2F rot(cosA, -sinA, sinA, cosA, 0.0f, 0.0f);
+        const D2D1::Matrix3x2F worldWithOrigin = Compose3x2(
+            D2D1::Matrix3x2F::Translation(static_cast<FLOAT>(ox),
+                                          static_cast<FLOAT>(oy)),
+            savedTransform);
+        const D2D1::Matrix3x2F composed = Compose3x2(rot, worldWithOrigin);
+        impl_->rt->SetTransform(composed);
+
+        topLeft = Point{0.0, 0.0};
+    }
 
     int lineIndex = 0;
     for (const std::string& line : layout.lines) {
@@ -288,29 +342,94 @@ void D2DRenderer::drawText(const TextLayout& layout, const TextStyle& style) {
             if (style.overstrike) textLayout->SetStrikethrough(TRUE, range);
         }
 
-        DWRITE_TEXT_METRICS metrics{};
-        textLayout->GetMetrics(&metrics);
-
-        float x = static_cast<FLOAT>(layout.origin.x);
-        if (ha == 1) x -= metrics.width * 0.5f;
-        else if (ha == 2) x -= metrics.width;
-
-        const float y = blockTop + lineHeight * static_cast<FLOAT>(lineIndex);
-        impl_->rt->DrawTextLayout(D2D1::Point2F(x, y), textLayout.Get(), impl_->brush.Get(),
-                                  D2D1_DRAW_TEXT_OPTIONS_NONE);
+        const double x = topLeft.x + JustifyOffset(justify, blockWidth, lineWidths[lineIndex]);
+        const float y = static_cast<FLOAT>(topLeft.y) + lineHeight * static_cast<FLOAT>(lineIndex);
+        impl_->rt->DrawTextLayout(D2D1::Point2F(static_cast<FLOAT>(x), y), textLayout.Get(),
+                                  impl_->brush.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
         ++lineIndex;
+    }
+
+    if (angle != 0.0) {
+        impl_->rt->SetTransform(savedTransform);
     }
 }
 
 // ---------------------------------------------------------------------------
-// Images (M9 — Tk photo images converted to D2D bitmaps)
+// Images (Tk photo / XBM bitmap images converted to D2D bitmaps)
 // ---------------------------------------------------------------------------
 
 void D2DRenderer::drawImage(const ImageRef& image, const Transform2D& transform) {
     if (!impl_->rt || !impl_->frameOpen) return;
 
-    auto* bitmap = static_cast<ID2D1Bitmap*>(const_cast<void*>(image.handle));
-    if (!bitmap) return;  // M9: CanvasTkImage will supply an ID2D1Bitmap* here.
+    ID2D1Bitmap* bitmap = nullptr;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> owned;  // holds a one-shot bitmap for this call
+
+    if (image.pixels && image.width > 0 && image.height > 0) {
+        // Raw RGBA from a Tk photo / XBM: convert once, cache by (key, generation).
+        const std::uint64_t key = image.cacheKey
+            ? ((static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(image.cacheKey)) << 32) |
+               static_cast<std::uint64_t>(image.generation))
+            : 0;
+        CachedBitmap* cached = nullptr;
+        if (key != 0) {
+            auto it = impl_->bitmapCache.find(key);
+            if (it != impl_->bitmapCache.end() &&
+                it->second.width == static_cast<double>(image.width) &&
+                it->second.height == static_cast<double>(image.height)) {
+                cached = &it->second;
+            }
+        }
+
+        if (!cached) {
+            const int stride = image.stride > 0 ? image.stride : image.width * 4;
+            const std::size_t rowBytes = static_cast<std::size_t>(image.width) * 4;
+            std::vector<std::uint8_t> premul(rowBytes * static_cast<std::size_t>(image.height));
+            if (stride == static_cast<int>(rowBytes)) {
+                for (std::size_t i = 0; i < premul.size(); i += 4) {
+                    const unsigned char a = image.pixels[i + 3];
+                    premul[i + 0] = static_cast<std::uint8_t>((image.pixels[i + 0] * a + 127) / 255);
+                    premul[i + 1] = static_cast<std::uint8_t>((image.pixels[i + 1] * a + 127) / 255);
+                    premul[i + 2] = static_cast<std::uint8_t>((image.pixels[i + 2] * a + 127) / 255);
+                    premul[i + 3] = a;
+                }
+            } else {
+                for (int y = 0; y < image.height; ++y) {
+                    const unsigned char* src = image.pixels + static_cast<std::size_t>(y) * static_cast<std::size_t>(stride);
+                    std::uint8_t* dst = premul.data() + static_cast<std::size_t>(y) * rowBytes;
+                    for (int x = 0; x < image.width; ++x) {
+                        const unsigned char a = src[x * 4 + 3];
+                        dst[x * 4 + 0] = static_cast<std::uint8_t>((src[x * 4 + 0] * a + 127) / 255);
+                        dst[x * 4 + 1] = static_cast<std::uint8_t>((src[x * 4 + 1] * a + 127) / 255);
+                        dst[x * 4 + 2] = static_cast<std::uint8_t>((src[x * 4 + 2] * a + 127) / 255);
+                        dst[x * 4 + 3] = a;
+                    }
+                }
+            }
+
+            const D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
+                D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96.0f, 96.0f);
+            CachedBitmap entry;
+            HRESULT hr = impl_->rt->CreateBitmap(
+                D2D1::SizeU(static_cast<UINT32>(image.width), static_cast<UINT32>(image.height)),
+                premul.data(), static_cast<UINT32>(rowBytes),
+                props, &entry.bitmap);
+            if (FAILED(hr)) return;
+            entry.width = static_cast<double>(image.width);
+            entry.height = static_cast<double>(image.height);
+            if (key != 0) {
+                if (impl_->bitmapCache.size() >= 64) impl_->bitmapCache.clear();
+                cached = &impl_->bitmapCache.emplace(key, std::move(entry)).first->second;
+            } else {
+                owned = std::move(entry.bitmap);
+                bitmap = owned.Get();
+            }
+        }
+        if (cached) bitmap = cached->bitmap.Get();
+    } else {
+        bitmap = static_cast<ID2D1Bitmap*>(const_cast<void*>(image.handle));
+    }
+
+    if (!bitmap) return;
 
     double a, b, c, d, e, f;
     transform.Coefficients(a, b, c, d, e, f);

@@ -7,6 +7,7 @@
 #include <tcl.h>
 #include <tk.h>
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "tkd2dcanvas/DashPattern.h"
 #include "tkd2dcanvas/Renderer.h"
 #include "tkd2dcanvas/SmoothCurve.h"
+#include "CanvasTkFont.h"
 
 class CanvasItem;  // global namespace (tkd2dcanvas/CanvasItem.h)
 
@@ -55,6 +57,41 @@ struct ItemConfig {
     int splineSteps = kDefaultSplineSteps;
     bool hasDashOffset = false;
     double dashOffset = 0.0;
+    // Image items (-image; check-only validation happens during parsing).
+    bool hasImage = false;
+    std::string imageName;                          // "" clears the reference
+    // Bitmap items (-bitmap; the bits are decoded once during parsing so a
+    // bad value aborts the command before anything is applied).
+    bool hasBitmap = false;
+    std::string bitmapName;
+    bool bitmapResolved = false;                    // set when the XBM bits were decoded OK
+    int bitmapWidth = 0;
+    int bitmapHeight = 0;
+    std::vector<std::uint8_t> bitmapBits;
+    // Bitmap-only paint options
+    bool hasForeground = false;
+    std::optional<Color> foreground;
+    bool hasBackground = false;
+    std::optional<Color> background;
+    // -angle (text items): counter-clockwise rotation in degrees about the
+    // item's anchor point; normalized to [0, 360) by the item.
+    bool hasAngle = false;
+    double angle = 0.0;
+    // Text items (-text/-font/-justify/-wrap). -width reuses hasWidth/width
+    // and means "wrap length in canvas units" on text items (Tk semantics).
+    bool hasText = false;
+    std::string text;
+    bool hasFont = false;
+    std::string fontSpec;                           // raw spec, as given
+    bool fontResolved = false;
+    TkFontInfo fontInfo;                            // `font actual` result for -font
+    // Anchor (text / image / bitmap items); canonical short form.
+    bool hasAnchor = false;
+    std::string anchor;
+    bool hasJustify = false;
+    std::string justify;                            // left|center|right
+    bool hasWrap = false;
+    std::string wrap;                               // word|char|none
 };
 
 // Parses "-option value" pairs from objv[firstArg, objc). Returns false with

@@ -1,0 +1,315 @@
+# text_image.test — M9: text items with fonts/anchors/justify/width/wrap,
+# photo image items, and bitmap items (Tk builtin names + @file.xbm).
+package require tcltest
+namespace import ::tcltest::*
+
+if {[catch {package require tkd2dcanvas} err]} {
+    puts "SKIP text_image.test: $err"
+    exit 0
+}
+
+tkd2dcanvas .c -width 400 -height 300 -background white
+
+# --- text item basics ---------------------------------------------------------
+
+test text-create-id "create text returns an integer id" -body {
+    set id [.c create text 10 10 -text "hello"]
+    expr {$id > 0}
+} -result 1
+
+test text-wrong-coords "text requires exactly 2 coordinates" -body {
+    catch {.c create text 10} msg
+    set msg
+} -match glob -result "wrong # coordinates:*"
+
+test text-bad-coords-list "a trailing option must start the option list" -body {
+    catch {.c create text 10 20 nope -text hi} msg
+    set msg
+} -match glob -result "expected number but got*"
+
+test text-text-roundtrip "-text is stored verbatim, newlines included" -body {
+    set id [.c create text 10 10 -text "one\ntwo\nthree"]
+    .c itemcget $id -text
+} -result "one\ntwo\nthree"
+
+test text-anchor-default "default -anchor is center" -body {
+    set id [.c create text 10 10 -text "hello"]
+    .c itemcget $id -anchor
+} -result "center"
+
+test text-anchor-nw-roundtrip "-anchor is normalized and reported" -body {
+    set id [.c create text 10 10 -text "hello" -anchor NW]
+    .c itemcget $id -anchor
+} -result "nw"
+
+test text-anchor-bad "bad -anchor errors" -body {
+    catch {.c create text 10 10 -text "hello" -anchor diagonal} msg
+    set msg
+} -match glob -result "bad anchor*"
+
+test text-justify-bad "bad -justify errors" -body {
+    catch {.c create text 10 10 -text "hello" -justify ragged} msg
+    set msg
+} -match glob -result "bad justify*"
+
+test text-wrap-bad "bad -wrap errors" -body {
+    catch {.c create text 10 10 -text "hello" -wrap syllables} msg
+    set msg
+} -match glob -result "bad -wrap*"
+
+test text-font-empty "empty -font errors" -body {
+    catch {.c create text 10 10 -text "hello" -font {}} msg
+    set msg
+} -match glob -result "*font*"
+
+test text-font-bad-size "non-integer font size errors" -body {
+    catch {.c create text 10 10 -text "hello" -font {Arial bogus}} msg
+    set msg
+} -match glob -result "*bogus*"
+
+test text-fill-default-and-clear "-fill defaults to black and can be cleared" -body {
+    set id [.c create text 10 10 -text "hello"]
+    set before [.c itemcget $id -fill]
+    .c itemconfigure $id -fill {}
+    set after [.c itemcget $id -fill]
+    list $before $after
+} -result {{#000000} {}}
+
+test text-width-wraps-lines-height "-width wraps the text and grows the bbox height" -body {
+    set item [.c create text 0 0 -text "alpha beta gamma delta epsilon zeta" -font {Arial 20} -width 80 -anchor nw]
+    lassign [.c bbox $item] x0 y0 x1 y1
+    expr {($y1 - $y0) > 26}
+} -result 1
+
+test text-width-draws-no-wrap-when-zero "-width 0 disables wrapping" -body {
+    set item [.c create text 0 0 -text "alpha beta gamma delta epsilon zeta eta theta iota kappa" -font {Arial 20} -anchor nw]
+    .c itemcget $item -width
+} -result "0"
+
+test text-itemrconfigure-anchor "itemconfigure -anchor round-trips" -body {
+    set id [.c create text 10 10 -text "hello"]
+    .c itemconfigure $id -anchor se
+    .c itemcget $id -anchor
+} -result "se"
+
+test text-itemrconfigure-atomic-failure "a bad option aborts the whole configure (nothing applied)" -body {
+    set id [.c create text 10 10 -text "hello"]
+    set rc [catch {.c itemconfigure $id -justify center -anchor diagonal} msg]
+    list $rc [.c itemcget $id -justify] [.c itemcget $id -anchor]
+} -result {1 left center}
+
+test text-font-itemrconfigure-makes-bbox-larger "changing -font changes the layout" -body {
+    set id [.c create text 0 0 -text "wwwwwwwwwwwwwwwwwwwwwwwwwwwwww" -font {Arial 8} -anchor nw]
+    set bb1 [.c bbox $id]
+    .c itemconfigure $id -font {Arial 24}
+    set bb2 [.c bbox $id]
+    expr {[lindex $bb2 2] > [lindex $bb1 2]}
+} -result 1
+
+test text-font-reported-as-configured "itemcget -font returns the configured spec" -body {
+    set id [.c create text 10 10 -text "hello" -font {Helvetica 14 bold}]
+    .c itemcget $id -font
+} -result "Helvetica 14 bold"
+
+test text-angle-roundtrip "itemcget -angle round-trips" -body {
+    set id [.c create text 10 10 -text "hello" -angle 45]
+    .c itemcget $id -angle
+} -result 45
+
+test text-angle-normalized-negative "negative -angle normalizes to 315" -body {
+    set id [.c create text 10 10 -text "hello" -angle -45]
+    .c itemcget $id -angle
+} -result 315
+
+test text-angle-normalized-over-360 "angle above 360 normalizes" -body {
+    set id [.c create text 10 10 -text "hello" -angle 405]
+    .c itemcget $id -angle
+} -result 45
+
+test text-angle-default-is-zero "-angle defaults to 0" -body {
+    set id [.c create text 10 10 -text "hello"]
+    .c itemcget $id -angle
+} -result 0
+
+test text-angle-widens-bbox "rotating 45 degrees grows the rotated bbox height" -body {
+    set flat [.c create text 100 100 -text "HHHHHHHH" -anchor center -angle 0]
+    set rotated [.c create text 100 100 -text "HHHHHHHH" -anchor center -angle 45]
+    set fh [expr {[lindex [.c bbox $flat] 3] - [lindex [.c bbox $flat] 1]}]
+    set rh [expr {[lindex [.c bbox $rotated] 3] - [lindex [.c bbox $rotated] 1]}]
+    expr {$rh > $fh}
+} -result 1
+
+test text-angle-rejected-on-rectangle "-angle is not valid for rectangles" -body {
+    set rect [.c create rectangle 0 0 10 10]
+    catch {.c itemconfigure $rect -angle 45} msg
+    set msg
+} -result "option \"-angle\" is not valid for rectangle items"
+
+test text-angle-rejected-on-image "-angle is not valid for image items" -body {
+    set ph [image create photo -width 2 -height 2]
+    catch {.c create image 10 10 -image $ph -angle 45} msg
+    set msg
+} -result "option \"-angle\" is not valid for image items"
+
+test text-image-option-rejected "-image is not valid for text items" -body {
+    set ph [image create photo -width 1 -height 1]
+    catch {.c create text 10 10 -text hi -image $ph} msg
+    set msg
+} -result "option \"-image\" is not valid for text items"
+
+test text-foreground-rejected "-foreground is not valid for text items" -body {
+    catch {.c create text 10 10 -text hi -foreground red} msg
+    set msg
+} -result "option \"-foreground\" is not valid for text items"
+
+test text-outline-rejected "-outline is not valid for text items" -body {
+    catch {.c create text 10 10 -text hi -outline red} msg
+    set msg
+} -result "option \"-outline\" is not valid for text items"
+
+# --- image item ---------------------------------------------------------------
+
+test image-create-missing-photo "unknown -image errors" -body {
+    catch {.c create image 10 10 -image no_such_photo_xyz} msg
+    set msg
+} -match glob -result "*no_such_photo_xyz*"
+
+test image-create-plain "create image without -image returns empty bbox (Tk)" -body {
+    set id [.c create image 30 40]
+    .c bbox $id
+} -result ""
+
+test image-photo-bbox-default-anchor "anchor defaults to center: the box is centered" -body {
+    set ph [image create photo -width 24 -height 10]
+    set id [.c create image 30 40 -image $ph]
+    .c bbox $id
+} -result "18 35 42 45"
+
+test image-photo-bbox-nw "anchor nw puts the top-left at the point" -body {
+    set ph [image create photo -width 24 -height 10]
+    set id [.c create image 30 40 -image $ph -anchor nw]
+    .c bbox $id
+} -result "30 40 54 50"
+
+test image-photo-full-path "a photo created with -data can be referenced" -body {
+    set ph [image create photo -width 3 -height 3]
+    $ph put red -to 0 0 2 2
+    set id [.c create image 5 5 -image $ph -anchor nw]
+    list [.c itemcget $id -image] [.c bbox $id]
+} -match glob -result "image* {5 5 8 8}"
+
+test image-reconfigure-photo "itemconfigure -image swaps the source" -body {
+    set ph1 [image create photo -width 2 -height 2]
+    set ph2 [image create photo -width 7 -height 5]
+    set id [.c create image 10 10 -image $ph1 -anchor nw]
+    .c itemconfigure $id -image $ph2
+    list [.c bbox $id] [.c itemcget $id -image]
+} -match glob -result "{10 10 17 15} image*"
+
+test image-reconfigure-bad-photo-aborts "a bad -image in itemconfigure aborts before applying" -body {
+    set ph [image create photo -width 2 -height 2]
+    set id [.c create image 10 10 -image $ph -anchor nw]
+    catch {.c itemconfigure $id -anchor se -image no_such_photo_zzz} msg
+    .c itemcget $id -anchor
+} -result "nw"
+
+test image-option-on-rect-rejected "-image is not valid for rectangles" -body {
+    set ph [image create photo -width 1 -height 1]
+    catch {.c create rectangle 0 0 10 10 -image $ph} msg
+    set msg
+} -result "option \"-image\" is not valid for rectangle items"
+
+test image-bitmap-option-rejected "-bitmap is not valid for image items" -body {
+    set ph [image create photo -width 2 -height 2]
+    catch {.c create image 10 10 -image $ph -bitmap info} msg
+    set msg
+} -result "option \"-bitmap\" is not valid for image items"
+
+test image-coords "image coords roundtrip" -body {
+    set ph [image create photo -width 2 -height 2]
+    set id [.c create image 11 22 -image $ph]
+    .c coords $id
+} -result "11 22"
+
+# --- bitmap item --------------------------------------------------------------
+
+test bitmap-builtin-info "builtin bitmap 'info' has its Tk size" -body {
+    set id [.c create bitmap 40 40 -bitmap info -anchor nw]
+    .c bbox $id
+} -result "40 40 48 61"
+
+test bitmap-builtin-warning "builtin bitmap 'warning' has its Tk size" -body {
+    set id [.c create bitmap 40 40 -bitmap warning -anchor nw]
+    .c bbox $id
+} -result "40 40 46 59"
+
+test bitmap-builtin-default-anchor-centers "default anchor centers the bitmap" -body {
+    set id [.c create bitmap 40 40 -bitmap warning]
+    lassign [.c bbox $id] x0 y0 x1 y1
+    expr {int(($x0 + $x1) / 2.0)}
+} -result 40
+
+test bitmap-unknown "unknown bitmap name errors" -body {
+    catch {.c create bitmap 10 10 -bitmap no_such_bitmap_xyz} msg
+    set msg
+} -match glob -result "*no_such_bitmap_xyz*"
+
+test bitmap-at-file "@file.xbm bitmaps parse" -body {
+    set xbm "#define testbit_width 5
+#define testbit_height 3
+static unsigned char testbit_bits[] = {
+   0x15, 0x0a, 0x15};
+"
+    set path [file join [file dirname [info script]] sample_testbit.xbm]
+    set f [open $path w]
+    puts -nonewline $f $xbm
+    close $f
+    set id [.c create bitmap 0 0 -bitmap @$path -anchor nw]
+    set rc [.c bbox $id]
+    file delete $path
+    set rc
+} -result "0 0 5 3"
+
+test bitmap-at-file-missing "@missing.xbm errors" -body {
+    catch {.c create bitmap 0 0 -bitmap @no_such_file_xyz.xbm} msg
+    set msg
+} -match glob -result "*no_such_file_xyz.xbm*"
+
+test bitmap-foreground-roundtrip "-foreground is stored and reported" -body {
+    set id [.c create bitmap 0 0 -bitmap info -foreground purple]
+    .c itemcget $id -foreground
+} -result "#800080"
+
+test bitmap-background-roundtrip "-background is stored and reported" -body {
+    set id [.c create bitmap 0 0 -bitmap info -background yellow]
+    .c itemcget $id -background
+} -result "#ffff00"
+
+test bitmap-background-clear "-background {} disables the clear-bit paint" -body {
+    set id [.c create bitmap 0 0 -bitmap info -background yellow]
+    .c itemconfigure $id -background {}
+    .c itemcget $id -background
+} -result ""
+
+test bitmap-foreground-clear "-foreground {} disables the set-bit paint" -body {
+    set id [.c create bitmap 0 0 -bitmap info -foreground black]
+    .c itemconfigure $id -foreground {}
+    .c itemcget $id -foreground
+} -result ""
+
+test bitmap-bitmap-option-on-rect-rejected "-bitmap is not valid for rectangles" -body {
+    catch {.c create rectangle 0 0 10 10 -bitmap info} msg
+    set msg
+} -result "option \"-bitmap\" is not valid for rectangle items"
+
+test bitmap-image-option-rejected "-image is not valid for bitmap items" -body {
+    set ph [image create photo -width 1 -height 1]
+    catch {.c create bitmap 0 0 -bitmap info -image $ph} msg
+    set msg
+} -result "option \"-image\" is not valid for bitmap items"
+
+destroy .c
+
+if {![info exists ::tkg_all_in_progress]} {
+    cleanupTests
+}

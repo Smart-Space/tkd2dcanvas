@@ -4,16 +4,24 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "tkd2dcanvas/CanvasItem.h"
+#include "tkd2dcanvas/Anchor.h"
 
 #include "ArcItem.h"
 #include "LineItem.h"
 #include "PolygonItem.h"
+#include "TextItem.h"
+#include "ImageItem.h"
+#include "BitmapItem.h"
 #include "CanvasTkColor.h"
+#include "CanvasTkFont.h"
+#include "CanvasTkImage.h"
+#include "CanvasTextMetrics.h"
 #include "CanvasWidget.h"
 
 namespace tkd2dcanvas {
@@ -352,6 +360,102 @@ bool ParseItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
                 Tcl_ResetResult(interp);
                 out.tags.emplace_back(Tcl_GetString(value));
             }
+        } else if (name == "angle") {
+            double angle = 0.0;
+            if (Tcl_GetDoubleFromObj(interp, value, &angle) != TCL_OK || !std::isfinite(angle)) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("bad -angle \"%s\": expected a number", Tcl_GetString(value)));
+                return false;
+            }
+            out.hasAngle = true;
+            out.angle = angle;
+        } else if (name == "text") {
+            out.hasText = true;
+            out.text = Tcl_GetString(value);
+        } else if (name == "font") {
+            const char* spec = Tcl_GetString(value);
+            if (!spec || *spec == '\0') {
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("expected a non-empty font name, got \"\"", -1));
+                return false;
+            }
+            TkFontInfo font;
+            if (!ResolveTkFont(interp, widget.tkwin, spec, font)) {
+                return false;
+            }
+            out.hasFont = true;
+            out.fontSpec = spec;
+            out.fontResolved = true;
+            out.fontInfo = font;
+        } else if (name == "anchor") {
+            std::string anchor;
+            if (!NormalizeAnchor(Tcl_GetString(value), anchor)) {
+                const char* bad = Tcl_GetString(value);
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+                    "bad anchor \"%s\": must be n, ne, e, se, s, sw, w, nw, or center",
+                    bad ? bad : ""));
+                return false;
+            }
+            out.hasAnchor = true;
+            out.anchor = std::move(anchor);
+        } else if (name == "justify") {
+            std::string justify;
+            if (!NormalizeJustify(Tcl_GetString(value), justify)) {
+                const char* bad = Tcl_GetString(value);
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+                    "bad justify \"%s\": must be left, center, or right",
+                    bad ? bad : ""));
+                return false;
+            }
+            out.hasJustify = true;
+            out.justify = std::move(justify);
+        } else if (name == "wrap") {
+            std::string wrap;
+            if (!NormalizeWrap(Tcl_GetString(value), wrap)) {
+                const char* bad = Tcl_GetString(value);
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+                    "bad -wrap \"%s\": must be word, char, or none",
+                    bad ? bad : ""));
+                return false;
+            }
+            out.hasWrap = true;
+            out.wrap = std::move(wrap);
+        } else if (name == "image") {
+            const char* imageName = Tcl_GetString(value);
+            if (!imageName) imageName = "";
+            if (*imageName != '\0' &&
+                Tk_FindPhoto(interp, imageName) == nullptr) {
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+                    "image \"%s\" doesn't exist or is not a photo image", imageName));
+                return false;
+            }
+            out.hasImage = true;
+            out.imageName = imageName;
+        } else if (name == "bitmap") {
+            const char* bitmapName = Tcl_GetString(value);
+            if (!bitmapName) bitmapName = "";
+            out.hasBitmap = true;
+            out.bitmapName = bitmapName;
+            out.bitmapResolved = false;
+            out.bitmapWidth = 0;
+            out.bitmapHeight = 0;
+            out.bitmapBits.clear();
+            if (*bitmapName != '\0') {
+                XbmBitmap bits;
+                if (!TkBitmapToBits(interp, bitmapName, bits)) return false;
+                out.bitmapResolved = true;
+                out.bitmapWidth = bits.width;
+                out.bitmapHeight = bits.height;
+                out.bitmapBits = std::move(bits.bits);
+            }
+        } else if (name == "foreground" || name == "background") {
+            std::optional<Color> color;
+            if (!ParseColorOption(interp, widget, value, color)) return false;
+            if (name == "foreground") {
+                out.hasForeground = true;
+                out.foreground = color;
+            } else {
+                out.hasBackground = true;
+                out.background = color;
+            }
         } else {
             Tcl_SetObjResult(interp, Tcl_ObjPrintf("unknown option \"%s\"", option));
             return false;
@@ -363,6 +467,27 @@ bool ParseItemConfig(Tcl_Interp* interp, CanvasWidget& widget,
 
 bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
                      const ItemConfig& config) {
+    const std::string type = item.Type();
+    const bool isShape =
+        type == "rectangle" || type == "oval" || type == "line" ||
+        type == "polygon" || type == "arc";
+
+    if (config.hasFill &&
+        !(isShape || type == "text")) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-fill\" is not valid for %s items", type.c_str()));
+        return false;
+    }
+    if ((config.hasOutline || config.hasDash || config.hasDashOffset) && !isShape) {
+        const char* name = config.hasOutline ? "-outline"
+                          : config.hasDash ? "-dash"
+                          : "-dashoffset";
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"%s\" is not valid for %s items", name, type.c_str()));
+        return false;
+    }
+    if (config.hasWidth && !(isShape || type == "text")) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-width\" is not valid for %s items", type.c_str()));
+        return false;
+    }
     if (config.hasJoinStyle &&
         item.Type() != "polygon" && item.Type() != "line") {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-joinstyle\" is not valid for %s items", item.Type().c_str()));
@@ -380,6 +505,25 @@ bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"-splinesteps\" is not valid for %s items", item.Type().c_str()));
         return false;
     }
+
+    const bool isText = type == "text";
+    const bool isImage = type == "image";
+    const bool isBitmap = type == "bitmap";
+    const bool supportsAnchor = isText || isImage || isBitmap;
+    auto reject = [&](const char* name) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("option \"%s\" is not valid for %s items", name, type.c_str()));
+        return false;
+    };
+    if (config.hasText && !isText) return reject("-text");
+    if (config.hasFont && !isText) return reject("-font");
+    if (config.hasJustify && !isText) return reject("-justify");
+    if (config.hasWrap && !isText) return reject("-wrap");
+    if (config.hasAngle && !isText) return reject("-angle");
+    if (config.hasAnchor && !supportsAnchor) return reject("-anchor");
+    if (config.hasImage && !isImage) return reject("-image");
+    if (config.hasBitmap && !isBitmap) return reject("-bitmap");
+    if (config.hasForeground && !isBitmap) return reject("-foreground");
+    if (config.hasBackground && !isBitmap) return reject("-background");
     if (!config.hasStart && !config.hasExtent && !config.hasStyle) return true;
     if (item.Type() == "arc") return true;
 
@@ -388,10 +532,59 @@ bool CheckItemConfig(Tcl_Interp* interp, const CanvasItem& item,
     return false;
 }
 
+namespace {
+
+void RefreshTextLayout(CanvasWidget& widget, TextItem& item, const ItemConfig& config) {
+    TkFontInfo effective;
+    if (config.hasFont && config.fontResolved) {
+        effective = config.fontInfo;
+    } else {
+        if (!ResolveTkFont(widget.interp, widget.tkwin, item.FontSpec().c_str(), effective)) {
+            effective.family = item.Font().family;
+            effective.size = item.Font().size;
+            effective.bold = item.Font().bold;
+            effective.italic = item.Font().italic;
+            effective.underline = item.Font().underline;
+            effective.overstrike = item.Font().overstrike;
+        }
+    }
+
+    TextItem::FontStyle style;
+    style.family = effective.family;
+    style.size = effective.size;
+    style.bold = effective.bold;
+    style.italic = effective.italic;
+    style.underline = effective.underline;
+    style.overstrike = effective.overstrike;
+    item.SetFontStyle(style);
+
+    TkFontMetrics metrics;
+    if (QueryTkFontMetrics(widget.interp, widget.tkwin, effective, metrics)) {
+        item.SetLineHeight(metrics.lineSpace());
+    }
+
+    const MeasuredTextLayout measured = MeasureTextLayout(
+        widget.interp, widget.tkwin, effective, item.Text(),
+        item.WrapWidth(), item.WrapMode());
+    TextBlockLayout layout;
+    layout.lines = measured.lines;
+    layout.lineWidths = measured.lineWidths;
+    layout.maxLineWidth = measured.maxLineWidth;
+    item.SetLayout(std::move(layout));
+}
+
+}  // namespace
+
 void ApplyItemConfig(CanvasWidget& widget, int itemId, CanvasItem& item, const ItemConfig& config) {
     if (config.hasFill) item.Style().fill = config.fill;
     if (config.hasOutline) item.Style().outline = config.outline;
-    if (config.hasWidth) item.Style().width = config.width;
+    if (config.hasWidth) {
+        if (item.Type() == "text") {
+            static_cast<TextItem&>(item).SetWrapWidth(config.width);
+        } else {
+            item.Style().width = config.width;
+        }
+    }
     if (config.hasDash) item.Style().dash = config.dash;
     if (config.hasDashOffset) item.Style().dashOffset = config.dashOffset;
     if (config.hasJoinStyle) item.Style().join = config.joinStyle;
@@ -426,6 +619,70 @@ void ApplyItemConfig(CanvasWidget& widget, int itemId, CanvasItem& item, const I
             if (ArcItem::StyleFromString(config.style, style)) arc->SetStyle(style);
         }
     }
+    if (item.Type() == "image") {
+        auto* image = static_cast<ImageItem*>(&item);
+        if (config.hasImage) {
+            image->SetImageName(config.imageName);
+        }
+        if (config.hasAnchor) image->SetAnchor(config.anchor);
+        if (config.hasImage) {
+            RgbaImage rgba;
+            if (!image->ImageName().empty() &&
+                TkPhotoToRgba(widget.interp, widget.tkwin, image->ImageName(), rgba)) {
+                image->SetPixels(std::move(rgba.pixels), rgba.width, rgba.height);
+            } else {
+                image->ClearPixels();
+            }
+        }
+    }
+    if (item.Type() == "bitmap") {
+        auto* bitmap = static_cast<BitmapItem*>(&item);
+        if (config.hasBitmap) {
+            bitmap->SetBitmapName(config.bitmapName);
+            if (config.bitmapResolved) {
+                bitmap->SetBitmapBits(config.bitmapBits, config.bitmapWidth, config.bitmapHeight);
+            } else {
+                bitmap->SetBitmapBits({}, 0, 0);
+            }
+        }
+        if (config.hasForeground) bitmap->SetForeground(config.foreground);
+        if (config.hasBackground) bitmap->SetBackground(config.background);
+        if (config.hasAnchor) bitmap->SetAnchor(config.anchor);
+    }
+    if (item.Type() == "text") {
+        auto* text = static_cast<TextItem*>(&item);
+        bool needsLayoutRefresh = false;
+        if (config.hasText) {
+            text->SetText(config.text);
+            needsLayoutRefresh = true;
+        }
+        if (config.hasFont) {
+            text->SetFontSpec(config.fontSpec);
+            if (config.fontResolved) text->SetFontStyle({
+                config.fontInfo.family, config.fontInfo.size, config.fontInfo.bold,
+                config.fontInfo.italic, config.fontInfo.underline, config.fontInfo.overstrike});
+            needsLayoutRefresh = true;
+        }
+        if (config.hasWrap) {
+            text->SetWrapMode(config.wrap);
+            needsLayoutRefresh = true;
+        }
+        if (config.hasWidth) {
+            needsLayoutRefresh = true;
+        }
+        if (config.hasJustify) {
+            text->SetJustify(config.justify);
+        }
+        if (config.hasAngle) {
+            text->SetAngle(config.angle);
+        }
+        if (config.hasAnchor) {
+            text->SetAnchor(config.anchor);
+        }
+        if (needsLayoutRefresh) {
+            RefreshTextLayout(widget, *text, config);
+        }
+    }
 }
 
 std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
@@ -439,6 +696,9 @@ std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
         return outline ? outline->ToHex() : "";
     }
     if (name == "width") {
+        if (item.Type() == "text") {
+            return DoubleToString(static_cast<const TextItem&>(item).WrapWidth());
+        }
         return DoubleToString(item.Style().width);
     }
     if (name == "dash") {
@@ -480,14 +740,59 @@ std::string ItemOptionValueString(const CanvasItem& item, const char* option) {
         if (name == "extent") return DoubleToString(arc.Extent());
         return ArcItem::StyleName(arc.GetStyle());
     }
+    if (name == "text" || name == "font" || name == "justify" || name == "wrap") {
+        if (item.Type() != "text") return {};
+        const auto& text = static_cast<const TextItem&>(item);
+        if (name == "text") return text.Text();
+        if (name == "font") return text.FontSpec();
+        if (name == "justify") return text.Justify();
+        return text.WrapMode();
+    }
+    if (name == "angle") {
+        if (item.Type() != "text") return {};
+        return DoubleToString(static_cast<const TextItem&>(item).Angle());
+    }
+    if (name == "anchor") {
+        if (item.Type() == "text") return static_cast<const TextItem&>(item).Anchor();
+        if (item.Type() == "image") return static_cast<const ImageItem&>(item).Anchor();
+        if (item.Type() == "bitmap") return static_cast<const BitmapItem&>(item).Anchor();
+        return {};
+    }
+    if (name == "image") {
+        if (item.Type() != "image") return {};
+        return static_cast<const ImageItem&>(item).ImageName();
+    }
+    if (name == "bitmap" || name == "foreground" || name == "background") {
+        if (item.Type() != "bitmap") return {};
+        const auto& bitmap = static_cast<const BitmapItem&>(item);
+        if (name == "bitmap") return bitmap.BitmapName();
+        if (name == "foreground") return bitmap.HasForeground() ? bitmap.Foreground().ToHex() : "";
+        return bitmap.HasBackground() ? bitmap.Background().ToHex() : "";
+    }
     return {};
 }
 
 Tcl_Obj* ItemConfigReport(Tcl_Interp* interp, CanvasItem& item) {
     Tcl_Obj* dict = Tcl_NewDictObj();
-    for (const char* name : {"-fill", "-outline", "-width", "-dash", "-dashoffset", "-tags"}) {
-        Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
+    const bool isShape =
+        item.Type() == "rectangle" || item.Type() == "oval" || item.Type() == "line" ||
+        item.Type() == "polygon" || item.Type() == "arc";
+    if (isShape || item.Type() == "text") {
+        Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, "-width").c_str(), -1);
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("-width", -1), value);
+    }
+    if (isShape || item.Type() == "text") {
+        Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, "-fill").c_str(), -1);
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("-fill", -1), value);
+    }
+    if (isShape) {
+        for (const char* name : {"-outline", "-dash", "-dashoffset", "-tags"}) {
+            Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
+            Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
+        }
+    } else {
+        Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, "-tags").c_str(), -1);
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("-tags", -1), value);
     }
     if (item.Type() == "line" || item.Type() == "polygon") {
         for (const char* name : {"-joinstyle", "-smooth", "-splinesteps"}) {
@@ -501,6 +806,24 @@ Tcl_Obj* ItemConfigReport(Tcl_Interp* interp, CanvasItem& item) {
     }
     if (item.Type() == "arc") {
         for (const char* name : {"-start", "-extent", "-style"}) {
+            Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
+            Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
+        }
+    }
+    if (item.Type() == "text") {
+        for (const char* name : {"-text", "-font", "-anchor", "-justify", "-wrap", "-angle"}) {
+            Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
+            Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
+        }
+    }
+    if (item.Type() == "image") {
+        for (const char* name : {"-image", "-anchor"}) {
+            Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
+            Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
+        }
+    }
+    if (item.Type() == "bitmap") {
+        for (const char* name : {"-bitmap", "-foreground", "-background", "-anchor"}) {
             Tcl_Obj* value = Tcl_NewStringObj(ItemOptionValueString(item, name).c_str(), -1);
             Tcl_DictObjPut(interp, dict, Tcl_NewStringObj(name, -1), value);
         }

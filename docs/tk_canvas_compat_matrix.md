@@ -11,9 +11,9 @@
 | `create_line` | ✅ (M4) | 支持多点折线；-fill 作画笔颜色；-joinstyle bevel/miter/round（默认 round）；-capstyle butt/projecting/round（默认 butt）；-smooth/-splinesteps（默认 0/12，Tk 算法直译，仅点数 > 2 生效） |
 | `create_polygon` | ✅ (M4) | 默认黑色填充；支持多点折线；-joinstyle bevel/miter/round（默认 round）；-smooth/-splinesteps（默认 0/12；`-smooth raw` 三次贝塞尔 knot 模式） |
 | `create_arc` | ✅ (M4) | 含 -start/-extent/-style（pieslice/chord/arc）；-offset 明确不支持；`-start`/`-extent` 在配置时按 Tk 归一化（start 归一到 [0, 360)，extent 按整圈截掉；`-extent 360` 归一为 0） |
-| `create_text` | ⬜ (M4 基础 / M9 增强) | font/anchor/justify |
-| `create_image` | ⬜ (M9) | 依赖 Tk photo |
-| `create_bitmap` | ⬜ (M9) | XBM |
+| `create_text` | ✅ (M9) | `-text`/`-font`/`-fill`/`-anchor`/`-justify`/`-width`（换行宽度，0=不换行）/`-wrap`（word/char/none）/`-angle`（逆时针，[0, 360)） |
+| `create_image` | ✅ (M9) | Tk photo → RGBA 拷贝（Straight→Premultiplied）；`-image`/`-anchor`；photo 在配置时拷贝像素，之后 photo 内容变更不会自动反映到 canvas |
+| `create_bitmap` | ✅ (M9) | 内嵌 Tk 预定义 XBM（error/gray12/gray25/gray50/gray75/hourglass/info/questhead/question/warning）+ `@file.xbm`；`-bitmap`/`-foreground`/`-background`（`""`=透明/停用）/`-anchor` |
 | `create_window` | ❌ 0.x | 见 roadmap M10 |
 | `coords` | ✅ (M4/M5) | 支持 tag/id 并集；单个 list 参数亦可 |
 | `move` | ✅ (M4/M5) | |
@@ -38,7 +38,7 @@
 | `focus` | ✅ (M8) | 原生 `focus`：仅支持插入光标的 item（目前无）可被设为焦点，与 Tk 一致；`focus` 无参返回焦点 item id（Python 层 `int`/`None`）；键盘事件只派发给焦点 item |
 | `create_a_window` 系别名 | ❌ | 不存在 |
 | `select_*`（select_adjust/from/to/clear/item） | ❌ | selection item 未实现 |
-| `dchars` / `icursor` / `insert` / `index` | ❌ | 文字 item 命令未实现（M9） |
+| `dchars` / `icursor` / `insert` / `index` | ❌ | 文字 item 编辑命令未实现（插入光标/选区路径未做） |
 | `keys()` | ✅ (M8) | 返回 dict 报告的键（不带 `-`），与 tkinter 一致 |
 | pack/grid/place 管理 | ✅ 托管 | 走 Tk geometry manager（示例已用）；返回 `None`（同 tkinter） |
 | `winfo_*` | ✅ 托管 | 由宿主 Tk 提供 |
