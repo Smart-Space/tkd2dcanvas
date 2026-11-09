@@ -212,18 +212,20 @@ bool StrokePixelOffset(const Path& path, double width, double& dx, double& dy) {
 
     if (!path.closed) {
         // Only a single straight segment can be moved onto the pixel grid.
+        // Only the axis perpendicular to the segment matters for the
+        // stroke edges, so the endpoints may sit at arbitrary positions
+        // along it (e.g. a thumb spanning fractional view fractions).
         if (path.points.size() != 2) return false;
         const Point& a = path.points[0];
         const Point& b = path.points[1];
-        if (!integral(a.x) || !integral(a.y) || !integral(b.x) || !integral(b.y)) {
-            return false;
-        }
         if (a.y == b.y) {  // horizontal: shift perpendicular to the line
+            if (!integral(a.y)) return false;
             dx = 0.0;
             dy = 0.5;
             return true;
         }
         if (a.x == b.x) {  // vertical
+            if (!integral(a.x)) return false;
             dx = 0.5;
             dy = 0.0;
             return true;

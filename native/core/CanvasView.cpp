@@ -67,6 +67,8 @@ void CanvasView::ConfineOrigin(double& x, double& y) const {
 void CanvasView::SetOrigin(double x, double y) {
     x = RoundToIncrement(x, xIncrement_);
     y = RoundToIncrement(y, yIncrement_);
+    if (xIncrement_ <= 0.0) x = std::trunc(x);
+    if (yIncrement_ <= 0.0) y = std::trunc(y);
     ConfineOrigin(x, y);
     xOffset_ = x;
     yOffset_ = y;
@@ -101,14 +103,14 @@ void CanvasView::ScrollUnits(bool horizontal, int count) {
     const double base = horizontal ? xOffset_ : yOffset_;
     const double newOff = (increment > 0.0)
         ? base + static_cast<double>(count) * increment
-        : base + static_cast<double>(count) * 0.1 * view;
+        : std::trunc(base + static_cast<double>(count) * 0.1 * view);
     if (horizontal) SetOrigin(newOff, yOffset_); else SetOrigin(xOffset_, newOff);
 }
 
 void CanvasView::ScrollPages(bool horizontal, int count) {
     const double view = static_cast<double>(horizontal ? viewWidth_ : viewHeight_);
     const double base = horizontal ? xOffset_ : yOffset_;
-    const double newOff = base + static_cast<double>(count) * 0.9 * view;
+    const double newOff = std::trunc(base + static_cast<double>(count) * 0.9 * view);
     if (horizontal) SetOrigin(newOff, yOffset_); else SetOrigin(xOffset_, newOff);
 }
 
