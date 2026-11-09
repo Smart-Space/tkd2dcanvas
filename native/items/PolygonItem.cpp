@@ -188,7 +188,7 @@ void PolygonItem::Draw(Renderer& renderer) const {
     // A two-point "polygon" is a line (Tk draws it as a single segment
     // with round joins at the ends). Stroke it as an open path so the
     // stroke can be snapped onto the pixel grid like create_line is;
-    // StrokePixelOffset's closed branch needs at least 3 points.
+    // AlignStrokePath's closed branch needs at least 3 points.
     path.closed = points_.size() >= 3;
     path.points = DisplayPoints();
 

@@ -189,17 +189,8 @@ D2D1::Matrix3x2F Compose3x2(const D2D1_MATRIX_3X2_F& A,
 //
 // Shifting the stroke geometry by half a pixel puts the stroke edges back on
 // the pixel grid: the coverage becomes 0/1 per pixel (crisp, like Tk) while
-// curved and diagonal edges keep their antialiasing. The shift only depends
-// on the path and the pen width, so items that are meant to line up (a
-// border and the face painted over it) stay aligned with each other.
-//
-// The shift is only applied where it buys something: a closed, axis-aligned
-// path with integral coordinates and an odd integer width. An even width
-// already has its edges on the pixel grid, and a curved or diagonal path
-// cannot be aligned at all.
-bool StrokePixelOffset(const Path& path, double width, double& dx, double& dy) {
-    dx = 0.0;
-    dy = 0.0;
+// curved and diagonal edges keep their antialiasing.
+bool AlignStrokePath(const Path& path, double width, Path& out) {
     if (path.points.size() < 2 || width <= 0.0) return false;
 
     const double rounded = std::floor(width + 0.5);
@@ -220,14 +211,16 @@ bool StrokePixelOffset(const Path& path, double width, double& dx, double& dy) {
         const Point& b = path.points[1];
         if (a.y == b.y) {  // horizontal: shift perpendicular to the line
             if (!integral(a.y)) return false;
-            dx = 0.0;
-            dy = 0.5;
+            out = path;
+            out.points[0].y += 0.5;
+            out.points[1].y += 0.5;
             return true;
         }
         if (a.x == b.x) {  // vertical
             if (!integral(a.x)) return false;
-            dx = 0.5;
-            dy = 0.0;
+            out = path;
+            out.points[0].x += 0.5;
+            out.points[1].x += 0.5;
             return true;
         }
         return false;  // diagonal
@@ -235,18 +228,30 @@ bool StrokePixelOffset(const Path& path, double width, double& dx, double& dy) {
 
     if (path.points.size() < 3) return false;
 
+    // A diagonal edge can't be aligned at all: keep the raw path.
     const std::size_t n = path.points.size();
     for (std::size_t i = 0; i < n; ++i) {
         const Point& p = path.points[i];
-        if (!integral(p.x) || !integral(p.y)) return false;
         const Point& next = path.points[(i + 1) % n];
         if (p.x != next.x && p.y != next.y) return false;  // diagonal edge
     }
 
-    // Move the stroke edges onto the next whole pixel in both directions.
-    dx = 0.5;
-    dy = 0.5;
-    return true;
+    out = path;
+    // Align every integral vertex in both axes independently. The path stays
+    // closed and axis-aligned (a horizontal edge's two endpoints share their
+    // y, a vertical edge's share their x, so they always move together).
+    bool aligned = false;
+    for (Point& p : out.points) {
+        if (integral(p.x)) {
+            p.x += 0.5;
+            aligned = true;
+        }
+        if (integral(p.y)) {
+            p.y += 0.5;
+            aligned = true;
+        }
+    }
+    return aligned;
 }
 }  // namespace
 
@@ -289,16 +294,10 @@ void D2DRenderer::drawLine(const Path& path, const PenStyle& pen) {
     if (FAILED(D2DContext::Factory()->CreatePathGeometry(&geometry))) return;
 
     // Half-pixel stroke edges are moved onto the pixel grid (see
-    // StrokePixelOffset), so that a 1px border stays 1px wide and crisp.
-    double dx = 0.0;
-    double dy = 0.0;
-    if (StrokePixelOffset(path, pen.width, dx, dy)) {
-        Path shifted = path;
-        for (Point& p : shifted.points) {
-            p.x += dx;
-            p.y += dy;
-        }
-        BuildGeometry(shifted, geometry.Get());
+    // AlignStrokePath), so that a 1px border stays 1px wide and crisp.
+    Path aligned;
+    if (AlignStrokePath(path, pen.width, aligned)) {
+        BuildGeometry(aligned, geometry.Get());
     } else {
         BuildGeometry(path, geometry.Get());
     }
