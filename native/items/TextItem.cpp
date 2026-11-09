@@ -41,6 +41,10 @@ void TextItem::SetAngle(double angle) {
 
 BBox TextItem::GetBBox() const {
     if (IsHidden()) return BBox::Empty();
+    // Tk: a text whose fill is empty ("") has textPtr->color == NULL and
+    // ComputeTextBbox zeroes width and height, so an invisible item reports
+    // no area (its bbox is empty and tag lookups ignore it).
+    if (!Style().fill.has_value()) return BBox::Empty();
     const double w = std::max(layout_.maxLineWidth, kMinBBoxSpan);
     const double h = std::max(BlockHeight(), kMinBBoxSpan);
     const double offsetX = AnchorOffsetX(anchor_, w);

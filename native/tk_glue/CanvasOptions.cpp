@@ -14,7 +14,7 @@ namespace {
 // ones. Values are stored directly in the CanvasWidget record.
 const Tk_OptionSpec kCanvasOptionSpecs[] = {
     {TK_OPTION_COLOR, "-background", "background", "Background",
-     (char *) "white", Tk_Offset(CanvasWidget, backgroundObj), -1,
+     (char *) "SystemButtonFace", Tk_Offset(CanvasWidget, backgroundObj), -1,
      TK_OPTION_NULL_OK, (char *) NULL, kCanvasOptColour},
     {TK_OPTION_SYNONYM, "-bg", NULL, NULL,
      NULL, 0, -1, 0, "-background", 0},
@@ -36,7 +36,7 @@ const Tk_OptionSpec kCanvasOptionSpecs[] = {
      (char *) "", Tk_Offset(CanvasWidget, cursorObj),
      -1, TK_OPTION_NULL_OK, (char *) NULL, kCanvasOptOther},
     {TK_OPTION_PIXELS, "-height", "height", "Height",
-     (char *) "300", -1, Tk_Offset(CanvasWidget, height),
+     (char *) "7c", -1, Tk_Offset(CanvasWidget, height),
      0, (char *) NULL, kCanvasOptGeometry},
     {TK_OPTION_PIXELS, "-highlightthickness", "highlightThickness",
      "HighlightThickness", (char *) "0", -1,
@@ -76,7 +76,7 @@ const Tk_OptionSpec kCanvasOptionSpecs[] = {
      (char *) "", Tk_Offset(CanvasWidget, takeFocusObj),
      -1, TK_OPTION_NULL_OK, (char *) NULL, kCanvasOptOther},
     {TK_OPTION_PIXELS, "-width", "width", "Width",
-     (char *) "400", -1, Tk_Offset(CanvasWidget, width),
+     (char *) "10c", -1, Tk_Offset(CanvasWidget, width),
      0, (char *) NULL, kCanvasOptGeometry},
     {TK_OPTION_PIXELS, "-xscrollincrement", "xScrollIncrement",
      "XScrollIncrement", (char *) "0", -1,
@@ -141,7 +141,7 @@ bool ApplyCanvasOptions(CanvasWidget& widget, int mask) {
     std::string scrollRegionError;
 
     if (mask & kCanvasOptColour) {
-        const char* spec = widget.backgroundObj ? Tcl_GetString(widget.backgroundObj) : "white";
+        const char* spec = widget.backgroundObj ? Tcl_GetString(widget.backgroundObj) : "SystemButtonFace";
         Color color;
         if (ResolveTkColor(widget.interp, widget.tkwin, spec, color)) {
             widget.backgroundColor = color;
