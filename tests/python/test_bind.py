@@ -130,6 +130,24 @@ def test_tag_bind_multiple_callbacks(canvas):
         pytest.skip(str(exc))
 
 
+def test_tag_bind_event_widget_is_the_canvas_object(canvas):
+    """``event.widget`` must resolve the ``%W`` path to the Python widget
+    instance (like tkinter), not stay a raw window path string."""
+    try:
+        hits = []
+        canvas.create_rectangle(80, 80, 120, 120, fill="blue", tags=("blue",))
+        canvas.tag_bind("blue", "<Button-1>", lambda e: hits.append(e.widget))
+
+        canvas.master.tk.call("event", "generate", canvas.tk_path, "<1>",
+                              "-x", "100", "-y", "100")
+        canvas.master.update()
+
+        assert len(hits) == 1
+        assert hits[0] is canvas
+    except CommandError as exc:
+        pytest.skip(str(exc))
+
+
 def test_widget_bind_multiple_callbacks(canvas):
     try:
         hits = []

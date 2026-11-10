@@ -78,7 +78,10 @@ def _make_event(canvas: "Canvas", args: Any) -> Any:
     event.keysym = K
     event.keysym_num = as_int(N)
     event.type = T
-    event.widget = W
+    try:
+        event.widget = canvas.nametowidget(W)
+    except KeyError:
+        event.widget = W
     event.x_root = as_int(X)
     event.y_root = as_int(Y)
     try:
