@@ -120,13 +120,22 @@ canvas .c -width 400 -height 300 -background white \
   只有拷贝语义才有意义。
 * **超大图形**：超过 4096 像素或采样点超过 16M 的图形会回退到普通绘制，以免
   离屏缓冲失控。
-* **性能**：每个图形需要一次 N 倍分辨率的离屏绘制 + 一次降采样 + 两次 `BitBlt`，
-  比普通绘制慢数倍。抗锯齿是按画布开关的，只在需要时开启。
+* **性能**：每个图形需要一次 N 倍分辨率的离屏绘制 + 一次降采样 + 两次 `BitBlt`
+  （读回目标、混合、写回），比普通绘制慢一个数量级以上。本机实测（半径 40 的圆，
+  4 倍超采样，单线程）：
+
+  | 单个形状的绘制耗时 | |
+  | --- | --- |
+  | 原生 GDI | 0.005 ms |
+  | 手动抗锯齿 | 0.121 ms（约 24 倍） |
+
+  抗锯齿是按画布开关的，只在需要时开启；画布静态内容会被 Tk 自己缓存，
+  所以只有重绘时才付这份开销。
 
 ## 5. 构建与验证
 
 ```powershell
-# 1. 把补丁应用到 Tcl/Tk 源码
+# 1. 把补丁应用到 Tcl/Tk 源码（或者直接用 tools\build_tk_aa.ps1）
 git -C third_party/tcltk-src/tk apply ..\..\third_party\patches\tk-8.6-gdi-antialias.patch
 
 # 2. 重新编译 Tk
@@ -143,6 +152,15 @@ pwsh -File tests\gdi_aa\run_demo.ps1 -Out aa_demo.png
 `tests/gdi_aa/aa_engine_test.c` 会把一个圆画进离屏位图，然后统计
 "完全覆盖 / 部分覆盖 / 完全没覆盖"的像素数，并打印边缘的覆盖率字符画，
 用来确认覆盖率确实是 0…255 之间连续变化的。
+
+回归检查用 Tk 自带的测试套件（改动的 `tkCanvas.c` / `tkWinDraw.c` 属于 Tk 本体）：
+
+```powershell
+cd third_party/tcltk-src/tk/tests
+wish86t.exe all.tcl -file {canv*.test}
+```
+
+当前结果：395 个用例，309 通过，86 跳过（字体、图片类型等环境约束），0 失败。
 
 ## 6. 与本仓库（Direct2D 版）的关系
 

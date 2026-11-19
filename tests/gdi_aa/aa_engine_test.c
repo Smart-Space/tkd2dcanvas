@@ -100,6 +100,58 @@ DrawAntiAliasedCircle(int scale)
     TkWinAALeave();
 }
 
+/*
+ * Draws the same circle with plain GDI, for comparison.
+ */
+
+static void
+DrawPlainCircle(void)
+{
+    HBRUSH brush, oldBrush;
+    HPEN pen, oldPen;
+
+    brush = CreateSolidBrush(RGB(255, 0, 0));
+    oldBrush = SelectObject(dc, brush);
+    pen = CreatePen(PS_SOLID, 1, RGB(255, 0, 0));
+    oldPen = SelectObject(dc, pen);
+    Ellipse(dc, 24, 24, 104, 104);
+    SelectObject(dc, oldPen);
+    SelectObject(dc, oldBrush);
+    DeleteObject(pen);
+    DeleteObject(brush);
+}
+
+static void
+Benchmark(void)
+{
+    const int iterations = 500;
+    LARGE_INTEGER freq, start, stop;
+    double aaMs, plainMs;
+
+    QueryPerformanceFrequency(&freq);
+
+    DrawAntiAliasedCircle(4);
+    QueryPerformanceCounter(&start);
+    for (int i = 0; i < iterations; i++) {
+	DrawAntiAliasedCircle(4);
+    }
+    QueryPerformanceCounter(&stop);
+    aaMs = (double) (stop.QuadPart - start.QuadPart)
+	    / (double) freq.QuadPart * 1000.0 / iterations;
+
+    DrawPlainCircle();
+    QueryPerformanceCounter(&start);
+    for (int i = 0; i < iterations; i++) {
+	DrawPlainCircle();
+    }
+    QueryPerformanceCounter(&stop);
+    plainMs = (double) (stop.QuadPart - start.QuadPart)
+	    / (double) freq.QuadPart * 1000.0 / iterations;
+
+    printf("cost per circle: plain GDI %.3f ms, anti-aliased %.3f ms "
+	    "(%.1fx)\n", plainMs, aaMs, aaMs / plainMs);
+}
+
 static void
 Check(int condition, const char *what)
 {
@@ -190,5 +242,6 @@ main(void)
 	return 1;
     }
     printf("all checks passed\n");
+    Benchmark();
     return 0;
 }
