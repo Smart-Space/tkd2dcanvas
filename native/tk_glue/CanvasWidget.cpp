@@ -13,7 +13,6 @@
 #include "CanvasEventBridge.h"
 #include "CanvasScrollBridge.h"
 #include "CanvasBindCommand.h"
-#include "D2DRenderer.h"
 #include "WindowHook.h"
 #include "CanvasPointerState.h"
 
@@ -439,7 +438,7 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
     // clipped in D2D), and the same rectangles gate the BitBlt to the target
     // DC, so a small change repaints only that region.
     surface.Paint(dc, rects,
-                  [this, &items](D2DRenderer& renderer, const RECT& overlap) {
+                  [this, &items](Renderer& renderer, const RECT& overlap) {
                       const CanvasView& view = model.View();
                       const double dx = view.XOffset();
                       const double dy = view.YOffset();

@@ -1,6 +1,7 @@
 ﻿#include "Win32Surface.h"
 
 #include "D2DRenderer.h"
+#include "GdiRenderer.h"
 
 #include "tkd2dcanvas/Geometry.h"
 
@@ -9,7 +10,16 @@ Win32Surface::~Win32Surface() = default;
 
 void Win32Surface::AttachToWindow(HWND hwnd) {
     hwnd_ = hwnd;
-    renderer_ = std::make_unique<D2DRenderer>();
+    switch (rendererKind_) {
+        case RendererKind::Gdi:
+            renderer_ = std::make_unique<tkd2dcanvas::GdiRenderer>();
+            break;
+        case RendererKind::Direct2D:
+        default:
+            renderer_ = std::make_unique<D2DRenderer>();
+            break;
+    }
+    SetAntiAliasScale(aaScale_);
 }
 
 void Win32Surface::Detach() {
@@ -19,6 +29,13 @@ void Win32Surface::Detach() {
     hwnd_ = nullptr;
     width_ = 0;
     height_ = 0;
+}
+
+void Win32Surface::SetAntiAliasScale(int scale) {
+    aaScale_ = scale;
+    if (auto* gdi = dynamic_cast<tkd2dcanvas::GdiRenderer*>(renderer_.get())) {
+        gdi->SetAntiAliasScale(scale);
+    }
 }
 
 void Win32Surface::Resize(int width, int height) {

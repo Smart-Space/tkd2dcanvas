@@ -90,6 +90,8 @@ add_library(tkd2dcanvas SHARED
     native/render/BrushCache.cpp
     native/render/FontCache.cpp
     native/render/DashConverter.cpp
+    native/render/GdiRenderer.cpp
+    native/render/GdiAntialias.cpp
 
     native/platform_win/Win32Surface.cpp
     native/platform_win/Win32ChildWindow.cpp
@@ -141,6 +143,7 @@ target_link_libraries(tkd2dcanvas PRIVATE
     dwrite
     user32
     gdi32
+    msimg32
     comctl32
 )
 

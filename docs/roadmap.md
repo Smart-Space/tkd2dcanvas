@@ -86,3 +86,27 @@
 ## 阶段 10：打包与发布（M11）
 
 - [ ] wheel（x64）、安装验证、文档、签名/校验
+
+## 阶段 11：纯 GDI 后端（M12，分支 `feature/gdi-antialias`）
+
+> 目标：验证"不用 D2D、只用 GDI（含原生 Tk 画布）"也能做到同等质量的边缘。
+> 详见 [gdi_antialias.md](gdi_antialias.md)。
+
+- [x] Tk 侧：在 `third_party/tcltk-src/tk` 上实现手动抗锯齿引擎
+      （补丁 `third_party/patches/tk-8.6-gdi-antialias.patch`），
+      `canvas -antialias 1 -aafactor 4`；Tk 自带 `canv*.test`
+      395 例 → 309 通过 / 86 跳过 / **0 失败**
+- [x] 仓库侧：`native/render/GdiAntialias.{h,cpp}` 超采样引擎 +
+      `native/render/GdiRenderer.{h,cpp}` 渲染器，
+      `-renderer gdi` / `-antialiasfactor N` 两个选项
+- [x] 抗锯齿引擎单元测试（`tests/gdi_aa/aa_render_test.cpp`）
+- [x] 边缘特性探针（`tests/gdi_aa/aa_edge_probe.cpp`）：
+      裁剪安全性、覆盖率量化、相邻图元接缝
+- [x] 像素对齐矩形的等价性测试（`tests/gdi_aa/aa_rect_equiv.cpp`）：
+      轴对齐 + 整数坐标的矩形走 `FillRect` 快路径（与抗锯齿引擎逐像素相同），
+      整屏重绘因此从 4.24 ms 降到 0.16 ms
+- [x] 与 D2D 后端逐像素对比（普通 / 滚动场景）
+- [x] 滚动路径：两个后端共用（后备缓冲 BitBlt 移位 + 只重画暴露的条带），
+      保留区是纯移位、不重新渲染
+- [ ] 覆盖率量化带来的边缘台阶（4 倍 17 级 vs D2D 解析 256 级）——
+      需要更高倍数或解析覆盖率才能根治

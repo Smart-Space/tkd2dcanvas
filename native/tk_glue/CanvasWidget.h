@@ -39,6 +39,7 @@ struct CanvasWidget {
     Tcl_Obj* insertBackgroundObj = nullptr;     // -insertbackground
     Tcl_Obj* selectBackgroundObj = nullptr;     // -selectbackground
     Tcl_Obj* selectForegroundObj = nullptr;     // -selectforeground
+    Tcl_Obj* rendererObj = nullptr;              // -renderer (d2d|gdi)
     int width = 400;                       // -width
     int height = 300;                      // -height
     int borderWidth = 0;                   // -borderwidth
@@ -51,6 +52,7 @@ struct CanvasWidget {
     int yScrollIncrement = 0;              // -yscrollincrement
     double closeEnough = 1.0;              // -closeenough
     int confine = 1;                       // -confine
+    int aaFactor = 4;                      // -antialiasfactor
 
     // ---- runtime state -----------------------------------------------------
     Tcl_Interp* interp = nullptr;

@@ -50,6 +50,24 @@ canvas.configure(scrollregion=(0, 0, 2000, 2000))
 canvas.cget("width")
 ```
 
+### 渲染后端
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `renderer` | `"d2d"` | `"d2d"`（Direct2D/DirectWrite）或 `"gdi"`（纯 GDI + 手动抗锯齿） |
+| `antialiasfactor` | `4` | `gdi` 后端的超采样倍数 N（2…8）。越大边缘越平滑、越慢 |
+
+```python
+canvas = tkd2dcanvas.Canvas(root, width=400, height=300, renderer="gdi")
+```
+
+两个后端在**同一个 DLL** 里，构建产物位置见
+[building.md](building.md)；`-renderer` **只能在创建时指定**，
+运行时 `configure(renderer=...)` 不会切换后端。
+
+`gdi` 后端的技术细节、限制与实测数据见
+[gdi_antialias.md](gdi_antialias.md)。
+
 ## 查找与 tag
 
 ```python

@@ -4,6 +4,9 @@
 
 > 渲染后端为 **Direct2D / DirectWrite**（`d2d1` / `dwrite`，Win7 SP1+ 自带）。
 > 运行时依赖 Windows 7 SP1+ 自带的 `d2d1.dll` / `dwrite.dll`，无需捆绑。
+> 分支 `feature/gdi-antialias` 上另有一个**纯 GDI 后端**（`-renderer gdi`，
+> 抗锯齿由本仓库自己的超采样引擎算），见
+> [docs/gdi_antialias.md](docs/gdi_antialias.md)。
 
 > 当前状态：代码骨架期（0.1.0）。**M0–M3 已完成**：Tcl package 可加载、
 > `tkd2dcanvas .c -width 400 -height 300` 能创建真实 Tk widget 并用 Direct2D

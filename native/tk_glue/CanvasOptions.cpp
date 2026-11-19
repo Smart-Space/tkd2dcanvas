@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <cstring>
+
 #include "CanvasTkColor.h"
 #include "CanvasWidget.h"
 
@@ -90,6 +92,12 @@ const Tk_OptionSpec kCanvasOptionSpecs[] = {
     {TK_OPTION_STRING, "-yscrollcommand", "yScrollCommand", "YScrollCommand",
      (char *) "", Tk_Offset(CanvasWidget, yScrollCommandObj),
      -1, 0, (char *) NULL, kCanvasOptScroll},
+    {TK_OPTION_STRING, "-renderer", "renderer", "Renderer",
+     (char *) "d2d", Tk_Offset(CanvasWidget, rendererObj),
+     -1, 0, (char *) NULL, kCanvasOptRenderer},
+    {TK_OPTION_INT, "-antialiasfactor", "antialiasFactor", "AntialiasFactor",
+     (char *) "4", -1, Tk_Offset(CanvasWidget, aaFactor),
+     0, (char *) NULL, kCanvasOptRenderer},
     {TK_OPTION_END, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0}
 };
 
@@ -175,6 +183,21 @@ bool ApplyCanvasOptions(CanvasWidget& widget, int mask) {
         }
         const CanvasView& view = widget.model.View();
         widget.model.View().SetOrigin(view.XOffset(), view.YOffset());
+    }
+
+    if (mask & kCanvasOptRenderer) {
+        const char* name = widget.rendererObj ? Tcl_GetString(widget.rendererObj) : "d2d";
+        if (strcmp(name, "gdi") == 0) {
+            widget.surface.SetRendererKind(RendererKind::Gdi);
+        } else if (strcmp(name, "d2d") == 0 || strcmp(name, "direct2d") == 0) {
+            widget.surface.SetRendererKind(RendererKind::Direct2D);
+        } else {
+            Tcl_SetObjResult(widget.interp, Tcl_ObjPrintf(
+                "bad renderer \"%s\": must be d2d or gdi", name));
+            Tcl_SetErrorCode(widget.interp, "TK", "CANVAS", "RENDERER", nullptr);
+            return false;
+        }
+        widget.surface.SetAntiAliasScale(widget.aaFactor);
     }
 
     if (mask & kCanvasOptOther) {

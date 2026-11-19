@@ -1,7 +1,9 @@
 # 架构说明
 
 > 原始规划见 [规划.md](规划.md)。
-> **当前实现**：渲染后端为 **Direct2D / DirectWrite**（`native/render/`），
+> **当前实现**：渲染后端有两条路径 —— **Direct2D / DirectWrite**（默认，
+> `native/render/D2DRenderer.cpp`）和 **纯 GDI + 手动抗锯齿**
+> （`native/render/GdiRenderer.cpp`，见 [gdi_antialias.md](gdi_antialias.md)）。
 > 其余分层与规划一致。变更决策记录见 [performance.md](performance.md)。
 
 ## 总体结构
@@ -17,8 +19,10 @@ C/C++ Tk widget (native/tk_glue)
     │  CanvasModel 更新；Win32Surface invalidate
     v
 Win32 surface / HWND / WM_PAINT (native/platform_win)
+    │                     ^
+    │                     └── Renderer 接口（native/render/Renderer.h）
     v
-Direct2D renderer + DirectWrite (native/render)
+渲染器：D2DRenderer（默认） 或 GdiRenderer（-renderer gdi）
 ```
 
 ## 分层与依赖方向
@@ -27,7 +31,7 @@ Direct2D renderer + DirectWrite (native/render)
 | --- | --- | --- |
 | 核心模型 | `native/include` + `native/core` | 无 |
 | Item 实现 | `native/items` | core |
-| 渲染抽象/实现 | `native/render` | core、d2d1/dwrite |
+| 渲染抽象/实现 | `native/render` | core、d2d1/dwrite、gdi32 |
 | Win32 平台 | `native/platform_win` | Win32、render |
 | Tk 胶水 | `native/tk_glue` | Tcl/Tk、core、platform_win |
 | Tcl package | `tcl/`、`python/.../tcl/` | Tcl |
@@ -44,8 +48,10 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
 - `ItemFactory`：`"rectangle"` 等字符串 → `CanvasItemPtr`。
 - `Renderer`（`native/include/tkd2dcanvas/Renderer.h`）：抽象接口
   （`clear / drawLine / fillPath / drawText / drawImage / pushClip / popClip`）。
-  `D2DRenderer`（`native/render/D2DRenderer.cpp`）实现它；将来若需第三种后端，
-  只需再实现该接口。
+  `SurfaceRenderer`（`native/render/SurfaceRenderer.h`）在它之上加了两个
+  "绑定到 DC" 的方法（`AttachToHdc` / `Detach`），让 `Win32Surface` 能把
+  后备缓冲的 HDC 交给渲染器。
+  两个实现：`D2DRenderer`（默认）和 `GdiRenderer`（`-renderer gdi`）。
 - `D2DRenderer`：
   - 绑定内存 HDC：`ID2D1DCRenderTarget` + 32bpp top-down DIB section
     （`Win32DoubleBuffer` 按此实现）→ 渲染完成后 `BitBlt` 到目标 DC，无闪烁。
@@ -56,6 +62,11 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
     （`pushClip` 取交集，`popClip` 恢复）。
   - 抗锯齿：`SetAntialiasMode(PER_PRIMITIVE)`，文字 ClearType。
   - 断设备（`D2DERR_RECREATE_TARGET`）：自动丢弃 render target，下一帧重建。
+- `GdiRenderer`：纯 GDI 后端，边缘的抗锯齿由本仓库自己的超采样引擎
+  （`native/render/GdiAntialias.cpp`）算——GDI 本身没有抗锯齿。
+  - 用法：`-renderer gdi`，可选 `-antialiasfactor N`（超采样倍数，2…8，默认 4）。
+  - 只能在**创建时**选择后端（见 [gdi_antialias.md](gdi_antialias.md) §8.8）。
+  - 细节、限制与实测数据见 [gdi_antialias.md](gdi_antialias.md) §8。
 - `Win32Surface`：32bpp 双缓冲 + D2D 绘制 + `BitBlt`；由 Tk 的Expose/Configure 事件驱动 `Paint()`。`WM_PAINT` 使用精确的 update region 矩形列表（不是包围盒）；滚动时先用 `ScrollWindowEx` + 后备缓冲`ScrollContent` 平移像素，再只重画新暴露条带；滚动命令内还会用 `UpdateWindow` 强制同步绘制，避免条带在延迟绘制前显示旧内容。`ScrollWindowEx` 不再移动子窗口（`SW_SCROLLCHILDREN` 已移除）：window item 的内嵌窗口由 `SyncWindowItems`（tk_glue/CanvasTkWindowItem.cpp）按模型 bbox − view origin 显式定位/map/unmap，分数 origin 与完整 repaint fallback 路径都能对齐；子窗口移动后会使其旧区域重绘。
 - `D2DRenderer` 的 DC 绑定在 HDC/尺寸不变时跨帧复用；后备缓冲重建时由`Win32Surface` 调 `ResetBinding()` 强制重新 `BindDC`。
 - `tk_glue`：`Tkd2dcanvas_Init`（package 入口，初始化 D2D/DWrite
@@ -79,8 +90,10 @@ Tk 协调；这些走 `CanvasEventBridge`，通过 `Tk_CreateEventHandler` 安�
 
 ## 命名说明
 
-渲染实现与运行时行为均为 Direct2D/DirectWrite；构建链接 `d2d1.lib` /
-`dwrite.lib`，不再使用 GDI+。
+渲染实现与运行时行为默认为 Direct2D/DirectWrite；构建链接 `d2d1.lib` /
+`dwrite.lib`，不使用 GDI+。`-renderer gdi` 额外链接 `gdi32.lib` /
+`msimg32.lib`（`AlphaBlend` 在 `msimg32` 里），但那是同一次构建、同一份
+DLL——两个后端共存于 `tkd2dcanvas01.dll`。
 
 ## Tk ⇄ Win32 集成（本项目最 tricky 的一层）
 

@@ -7,12 +7,12 @@
 
 #include <memory>
 
-#include "tkd2dcanvas/Renderer.h"
+#include "SurfaceRenderer.h"
 
 struct ID2D1PathGeometry;
 class D2DRendererImpl;
 
-class D2DRenderer final : public Renderer {
+class D2DRenderer final : public SurfaceRenderer {
 public:
     D2DRenderer();
     ~D2DRenderer() override;

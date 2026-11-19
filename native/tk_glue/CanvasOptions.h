@@ -18,6 +18,7 @@ enum CanvasOptionMask {
     kCanvasOptColour = 1 << 1,     // -background
     kCanvasOptScroll = 1 << 2,     // -scrollregion/-*scrollcommand/-confine
     kCanvasOptOther = 1 << 3,      // everything else
+    kCanvasOptRenderer = 1 << 4,   // -renderer/-antialiasfactor
 };
 
 // Creates the option table for the canvas widget class.

@@ -95,6 +95,20 @@ cmake --build build/release --config Release
 默认 `TKG_SYNC_PYTHON_PACKAGE=ON`，构建后自动同步到
 `python/tkd2dcanvas/tcl/tkd2dcanvas/`（含 pkgIndex.tcl）。
 
+各个预设的产物位置：
+
+| 预设 | DLL 产物 |
+| --- | --- |
+| `windows-release` | `build/release/Release/tkd2dcanvas01.dll` |
+| `windows-debug` | `build/debug/Debug/tkd2dcanvas01.dll` |
+| `windows-default` | `build/default/Release/tkd2dcanvas01.dll` |
+| `tools/build_windows_wheel.py` | `build/wheel/Release/tkd2dcanvas01.dll`（再打进 `dist/*.whl`） |
+
+**Python 实际加载的是 `python/tkd2dcanvas/tcl/tkd2dcanvas/tkd2dcanvas01.dll`**
+——构建后由 `POST_BUILD` 步骤自动覆盖。改完 C++ 代码只要重新
+`cmake --build build/release --config Release` 就能在 Python 里生效，
+不必重装 wheel。
+
 > 注：在 Tcl/Tk SDK 就位之前，`find_package(TclTkDev REQUIRED)` 会直接以清晰
 > 的报错失败，这是刻意的（M0 门槛）。不依赖 Tcl/Tk 的 core 部分可以单独
 > 构建：`cmake -S . -B build/bench -DTKG_CORE_ONLY=ON -DTKG_BUILD_BENCH=ON`。
