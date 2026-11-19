@@ -32,6 +32,11 @@ python/tkd2dcanvas/tcl/tkd2dcanvas/tkd2dcanvas01.dll
 .idea/
 Thumbs.db
 
+# GDI anti-aliasing test artifacts
+/tests/gdi_aa/build/
+/tests/gdi_aa/*.log
+/tests/gdi_aa/*.ppm
+
 .ignore
 tests/tinui/
 tools/tinui*

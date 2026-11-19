@@ -1,0 +1,1173 @@
+From f112485b91a2ed52e6067faf8cdc55f7c6cf635e Mon Sep 17 00:00:00 2001
+From: Smart-Space <3180471716@qq.com>
+Date: Thu, 19 Nov 2026 13:54:36 +0800
+Subject: [PATCH] Implement manual anti-aliasing for the Windows GDI back end
+
+GDI has no anti-aliasing of its own: every path is rasterized with hard,
+aliased edges.  This patch implements anti-aliasing by hand, using nothing
+but plain GDI:
+
+  1. the shape is drawn with ordinary GDI calls into an off-screen DIB
+     that has "scale" times the resolution of the device,
+  2. that DIB is box-filtered down to device resolution, which yields the
+     exact area that the shape covers in every device pixel,
+  3. the area is used as an alpha value when the shape is composited onto
+     the destination.
+
+The new file win/tkWinAA.c holds the engine; win/tkWinDraw.c routes
+XFillArc, XDrawArc, XFillPolygon and XDrawLines through it while a
+canvas with the new "-antialias" option is being redrawn.  Dashed lines,
+stippled fills and non-copy raster operations keep using the plain path,
+because their patterns are not scaled along with the shape.  Text is left
+alone: GDI already anti-aliases TrueType glyphs by itself.
+---
+ generic/tkCanvas.c |  19 ++
+ generic/tkCanvas.h |  21 ++
+ win/makefile.vc    |   1 +
+ win/tkWinAA.c      | 621 +++++++++++++++++++++++++++++++++++++++++++++
+ win/tkWinAA.h      |  85 +++++++
+ win/tkWinDraw.c    | 251 +++++++++++++++++-
+ 6 files changed, 994 insertions(+), 4 deletions(-)
+ create mode 100644 win/tkWinAA.c
+ create mode 100644 win/tkWinAA.h
+
+diff --git a/generic/tkCanvas.c b/generic/tkCanvas.c
+index 5ce5c03db..b0d1fe16f 100644
+--- a/generic/tkCanvas.c
++++ b/generic/tkCanvas.c
+@@ -202,6 +202,12 @@ static const Tk_ConfigSpec configSpecs[] = {
+ 	"ScrollIncrement",
+ 	DEF_CANVAS_Y_SCROLL_INCREMENT, Tk_Offset(TkCanvas, yScrollIncrement),
+ 	0, NULL},
++#ifdef _WIN32
++    {TK_CONFIG_BOOLEAN, "-antialias", "antiAlias", "AntiAlias",
++	"0", Tk_Offset(TkCanvas, aaEnabled), 0, NULL},
++    {TK_CONFIG_INT, "-aafactor", "aaFactor", "AAFactor",
++	"4", Tk_Offset(TkCanvas, aaFactor), 0, NULL},
++#endif
+     {TK_CONFIG_END, NULL, NULL, NULL, NULL, 0, 0, NULL}
+ };
+ 
+@@ -2588,6 +2594,16 @@ DisplayCanvas(
+ 	 * unmapped when they move off-screen).
+ 	 */
+ 
++#ifdef _WIN32
++	/*
++	 * On Windows the items may be anti-aliased by hand: the GDI back
++	 * end renders them at a higher resolution and filters the result
++	 * down again, which gives smooth edges even though GDI itself does
++	 * not anti-alias anything.
++	 */
++
++	TkWinCanvasAAEnter(canvasPtr);
++#endif
+ 	for (itemPtr = canvasPtr->firstItemPtr; itemPtr != NULL;
+ 		itemPtr = itemPtr->nextPtr) {
+ 	    if ((itemPtr->x1 >= screenX2)
+@@ -2610,6 +2626,9 @@ DisplayCanvas(
+ 	    ItemDisplay(canvasPtr, itemPtr, pixmap, screenX1, screenY1, width,
+ 		    height);
+ 	}
++#ifdef _WIN32
++	TkWinCanvasAALeave();
++#endif
+ 
+ #ifndef TK_NO_DOUBLE_BUFFERING
+ 	/*
+diff --git a/generic/tkCanvas.h b/generic/tkCanvas.h
+index bd991167a..f3d6fe393 100644
+--- a/generic/tkCanvas.h
++++ b/generic/tkCanvas.h
+@@ -234,6 +234,17 @@ typedef struct TkCanvas {
+     TagSearchExpr *bindTagExprs;/* Linked list of tag expressions used in
+ 				 * bindings. */
+ #endif
++#ifdef _WIN32
++    /*
++     * Manual anti-aliasing of the canvas (Windows/GDI only, see
++     * tkWinAA.c).  GDI has no anti-aliasing of its own, so the edges of
++     * the items are smoothed by rendering them at a higher resolution
++     * and filtering the result down again.
++     */
++
++    int aaEnabled;		/* Non-zero to anti-alias the canvas. */
++    int aaFactor;		/* Number of samples per pixel axis. */
++#endif
+ } TkCanvas;
+ 
+ /*
+@@ -295,6 +306,16 @@ MODULE_SCOPE int	TkCanvPostscriptCmd(TkCanvas *canvasPtr,
+ MODULE_SCOPE int	TkCanvTranslatePath(TkCanvas *canvPtr,
+ 			    int numVertex, double *coordPtr, int closed,
+ 			    XPoint *outPtr);
++#ifdef _WIN32
++/*
++ * Windows-specific hooks that switch the GDI back end into manual
++ * anti-aliasing mode while the items of a canvas are being redrawn.  The
++ * hooks are implemented in tk/win/tkWinAA.c.
++ */
++
++MODULE_SCOPE void	TkWinCanvasAAEnter(TkCanvas *canvasPtr);
++MODULE_SCOPE void	TkWinCanvasAALeave(void);
++#endif
+ /*
+  * Standard item types provided by Tk:
+  */
+diff --git a/win/makefile.vc b/win/makefile.vc
+index 3858102f5..43a526bdd 100644
+--- a/win/makefile.vc
++++ b/win/makefile.vc
+@@ -150,6 +150,7 @@ TKOBJS = \
+ 	$(XLIBOBJS) \
+ 	$(TMP_DIR)\tkWin3d.obj \
+ 	$(TMP_DIR)\tkWin32Dll.obj \
++	$(TMP_DIR)\tkWinAA.obj \
+ 	$(TMP_DIR)\tkWinButton.obj \
+ 	$(TMP_DIR)\tkWinClipboard.obj \
+ 	$(TMP_DIR)\tkWinColor.obj \
+diff --git a/win/tkWinAA.c b/win/tkWinAA.c
+new file mode 100644
+index 000000000..4a7797271
+--- /dev/null
++++ b/win/tkWinAA.c
+@@ -0,0 +1,621 @@
++/*
++ * tkWinAA.c --
++ *
++ *	Manual anti-aliasing support for the Windows GDI back end of Tk.
++ *
++ *	GDI rasterizes paths without any anti-aliasing: a diagonal edge ends
++ *	up as a staircase of full pixels.  Since GDI offers no way of asking
++ *	for smooth edges, the smoothing has to be computed by hand.  This
++ *	file implements the classic approach: supersampling.
++ *
++ *		1. The shape is drawn with ordinary GDI calls into an
++ *		   off-screen buffer whose resolution is "scale" times higher
++ *		   than the device resolution.  At that resolution the
++ *		   staircase is "scale" times finer.
++ *		2. The buffer is box-filtered down to device resolution.
++ *		   Every device pixel receives the fraction of its area that
++ *		   was covered by the shape, which is exactly the value that
++ *		   is needed for anti-aliasing.
++ *		3. The shape is composited onto the destination using that
++ *		   fraction as an alpha value.
++ *
++ *	Everything here is plain GDI: no GDI+, no Direct2D, no DirectWrite.
++ *	Text is not touched - GDI already anti-aliases TrueType glyphs by
++ *	itself.
++ *
++ * Copyright (c) 2026 The tkgdipluscanvas authors.
++ *
++ * See the file "license.terms" for information on usage and redistribution
++ * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
++ */
++
++#include "tkWinInt.h"
++#include "tkCanvas.h"
++#include "tkWinAA.h"
++
++/*
++ * The color that shapes are drawn with inside the off-screen buffer.  The
++ * engine compares the samples against this color to find out which ones
++ * are covered, so it only has to be different from the color that the
++ * buffer is cleared with.
++ */
++
++#define AA_MASK_COLOR	((COLORREF) RGB(1, 2, 3))
++#define AA_BACK_COLOR	((COLORREF) RGB(4, 5, 6))
++
++/*
++ * A COLORREF is 0x00BBGGRR, while a DWORD that is read from a 32 bit DIB
++ * is 0xAARRGGBB (the DIB stores the pixels as B, G, R, X).  The two have
++ * to be converted into each other whenever a color is compared with a
++ * pixel or written into a pixel.
++ */
++
++#define AA_COLOR_TO_DWORD(c) \
++    ((DWORD) (((c) >> 16) & 0xFF) \
++	    | ((DWORD) ((c) & 0xFF00)) \
++	    | ((DWORD) ((c) & 0xFF) << 16))
++
++/*
++ * State of the anti-aliasing engine.  Drawing always happens inside a
++ * single thread, but Tk supports multiple threads, so the state is kept
++ * in thread local storage.
++ */
++
++typedef struct TkWinAAState {
++    int active;			/* Non-zero while an AA pass is active. */
++    int nesting;		/* Depth of nested AA passes. */
++    int scale;			/* Supersampling factor. */
++    int registered;		/* Non-zero once the exit proc is installed. */
++    HDC scratchDC;		/* DC holding the supersampled shape. */
++    HBITMAP scratchBitmap;	/* Bitmap selected into scratchDC. */
++    void *scratchBits;		/* Pixel data of scratchBitmap. */
++    int scratchWidth;		/* Width of scratchBitmap in samples. */
++    int scratchHeight;		/* Height of scratchBitmap in samples. */
++    HDC destDC;			/* DC holding a copy of the destination. */
++    HBITMAP destBitmap;		/* Bitmap selected into destDC. */
++    void *destBits;		/* Pixel data of destBitmap. */
++    int destWidth;		/* Width of destBitmap in pixels. */
++    int destHeight;		/* Height of destBitmap in pixels. */
++} TkWinAAState;
++
++static __declspec(thread) TkWinAAState aaState;
++
++/*
++ * Forward declarations of functions defined in this file:
++ */
++
++static void		AAFreeBuffers(TkWinAAState *statePtr);
++static int		AAEnsureBuffer(TkWinAAState *statePtr,
++			    HDC *dcPtr, HBITMAP *bitmapPtr, void **bitsPtr,
++			    int *widthPtr, int *heightPtr,
++			    int width, int height);
++static HBITMAP		AACreateDIB(HDC dc, int width, int height,
++			    void **bitsPtr);
++static void		AAInterpDeleteProc(ClientData clientData,
++			    Tcl_Interp *interp);
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinAAMaskColor --
++ *
++ *	Returns the color that shapes have to be drawn with inside the
++ *	off-screen buffer of the anti-aliasing engine.
++ *
++ * Results:
++ *	The mask color.
++ *
++ *----------------------------------------------------------------------
++ */
++
++COLORREF
++TkWinAAMaskColor(void)
++{
++    return AA_MASK_COLOR;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinAAIsActive --
++ *
++ *	Reports whether the anti-aliasing engine is currently active.
++ *
++ * Results:
++ *	Non-zero if drawing primitives should be anti-aliased.
++ *
++ *----------------------------------------------------------------------
++ */
++
++int
++TkWinAAIsActive(void)
++{
++    return aaState.active;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinAAGetScale --
++ *
++ *	Returns the supersampling factor of the active anti-aliasing pass.
++ *
++ * Results:
++ *	The number of samples per pixel axis.
++ *
++ *----------------------------------------------------------------------
++ */
++
++int
++TkWinAAGetScale(void)
++{
++    return aaState.scale;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinAAEnter --
++ *
++ *	Starts an anti-aliased drawing pass.  Every drawing primitive that
++ *	is issued while the pass is active is rendered through the
++ *	anti-aliasing engine.
++ *
++ * Results:
++ *	None.
++ *
++ * Side effects:
++ *	Anti-aliasing is enabled until the matching TkWinAALeave().
++ *
++ *----------------------------------------------------------------------
++ */
++
++void
++TkWinAAEnter(
++    int scale)			/* Number of samples per pixel axis. */
++{
++    if (scale < TK_AA_MIN_SCALE) {
++	scale = TK_AA_MIN_SCALE;
++    } else if (scale > TK_AA_MAX_SCALE) {
++	scale = TK_AA_MAX_SCALE;
++    }
++    if (aaState.nesting == 0) {
++	aaState.scale = scale;
++    }
++    aaState.nesting++;
++    aaState.active = 1;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinAALeave --
++ *
++ *	Ends the innermost anti-aliased drawing pass.
++ *
++ * Results:
++ *	None.
++ *
++ * Side effects:
++ *	Anti-aliasing is disabled when the outermost pass ends.
++ *
++ *----------------------------------------------------------------------
++ */
++
++void
++TkWinAALeave(void)
++{
++    if (aaState.nesting > 0) {
++	aaState.nesting--;
++    }
++    if (aaState.nesting == 0) {
++	aaState.active = 0;
++    }
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * AACreateDIB --
++ *
++ *	Creates a top-down 32 bit DIB section that can be accessed
++ *	directly through a pointer.
++ *
++ * Results:
++ *	The handle of the new bitmap, or NULL if the allocation failed.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static HBITMAP
++AACreateDIB(
++    HDC dc,			/* DC to create the bitmap compatible with. */
++    int width,			/* Width of the bitmap. */
++    int height,			/* Height of the bitmap. */
++    void **bitsPtr)		/* Place to store the pixel pointer. */
++{
++    BITMAPINFO info;
++
++    memset(&info, 0, sizeof(info));
++    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
++    info.bmiHeader.biWidth = width;
++    info.bmiHeader.biHeight = -height;	/* Top-down order. */
++    info.bmiHeader.biPlanes = 1;
++    info.bmiHeader.biBitCount = 32;
++    info.bmiHeader.biCompression = BI_RGB;
++    info.bmiHeader.biSizeImage = 0;
++    info.bmiHeader.biXPelsPerMeter = 0;
++    info.bmiHeader.biYPelsPerMeter = 0;
++    info.bmiHeader.biClrImportant = 0;
++    *bitsPtr = NULL;
++    return CreateDIBSection(dc, &info, DIB_RGB_COLORS, bitsPtr, NULL, 0);
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * AAEnsureBuffer --
++ *
++ *	Makes sure that the given buffer is at least as large as requested.
++ *	Buffers only ever grow, so that a sequence of shapes of similar
++ *	size does not allocate over and over again.
++ *
++ * Results:
++ *	1 if the buffer is usable, 0 if the allocation failed.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static int
++AAEnsureBuffer(
++    TkWinAAState *statePtr,
++    HDC *dcPtr,			/* In/out: memory DC of the buffer. */
++    HBITMAP *bitmapPtr,		/* In/out: bitmap selected into the DC. */
++    void **bitsPtr,		/* In/out: pixel data of the bitmap. */
++    int *widthPtr,		/* In/out: width of the bitmap. */
++    int *heightPtr,		/* In/out: height of the bitmap. */
++    int width,			/* Required width. */
++    int height)			/* Required height. */
++{
++    HBITMAP bitmap;
++    void *bits;
++    int newWidth, newHeight;
++
++    if (*dcPtr == NULL) {
++	*dcPtr = CreateCompatibleDC(NULL);
++	if (*dcPtr == NULL) {
++	    return 0;
++	}
++    }
++    if ((width <= *widthPtr) && (height <= *heightPtr)) {
++	return 1;
++    }
++
++    /*
++     * Round the size up so that shapes of slightly different sizes can
++     * share the same buffer.
++     */
++
++    newWidth = (width + 63) & ~63;
++    newHeight = (height + 63) & ~63;
++    if (newWidth < *widthPtr) {
++	newWidth = *widthPtr;
++    }
++    if (newHeight < *heightPtr) {
++	newHeight = *heightPtr;
++    }
++    bitmap = AACreateDIB(*dcPtr, newWidth, newHeight, &bits);
++    if (bitmap == NULL) {
++	return 0;
++    }
++    if (*bitmapPtr != NULL) {
++	SelectObject(*dcPtr, *bitmapPtr);
++	DeleteObject(*bitmapPtr);
++    }
++    SelectObject(*dcPtr, bitmap);
++    *bitmapPtr = bitmap;
++    *bitsPtr = bits;
++    *widthPtr = newWidth;
++    *heightPtr = newHeight;
++    return 1;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinAABegin --
++ *
++ *	Prepares the off-screen buffer of the anti-aliasing engine for a
++ *	shape.
++ *
++ * Results:
++ *	The memory DC that the shape must be drawn into, or NULL if the
++ *	shape cannot be anti-aliased.
++ *
++ * Side effects:
++ *	The off-screen buffer is cleared.
++ *
++ *----------------------------------------------------------------------
++ */
++
++HDC
++TkWinAABegin(
++    HDC destDC,			/* DC of the destination of the shape. */
++    int left,			/* Left edge of the shape, device coords. */
++    int top,			/* Top edge of the shape, device coords. */
++    int width,			/* Width of the shape, device pixels. */
++    int height)			/* Height of the shape, device pixels. */
++{
++    TkWinAAState *statePtr = &aaState;
++    int scale = statePtr->scale;
++    int hiWidth, hiHeight;
++
++    if ((width <= 0) || (height <= 0)) {
++	return NULL;
++    }
++    if ((width > TK_AA_MAX_DIMENSION) || (height > TK_AA_MAX_DIMENSION)) {
++	return NULL;
++    }
++    hiWidth = width * scale;
++    hiHeight = height * scale;
++    if (((long) hiWidth * (long) hiHeight) > TK_AA_MAX_SAMPLES) {
++	return NULL;
++    }
++    if (!AAEnsureBuffer(statePtr, &statePtr->scratchDC,
++	    &statePtr->scratchBitmap, &statePtr->scratchBits,
++	    &statePtr->scratchWidth, &statePtr->scratchHeight,
++	    hiWidth, hiHeight)) {
++	return NULL;
++    }
++
++    /*
++     * Clear the buffer: uncovered samples must differ from the mask
++     * color.  The whole buffer is cleared, not just the part that is
++     * going to be used, so that stale samples can never leak into the
++     * result.
++     */
++
++    memset(statePtr->scratchBits, 0,
++	    (size_t) statePtr->scratchWidth * (size_t) statePtr->scratchHeight
++	    * sizeof(DWORD));
++
++    /*
++     * Note: the raster operation of the scratch DC must not be changed.
++     * SetROP2() makes GDI use its old-style raster operations, which do
++     * not work with 32 bit DIB sections: the shape would be drawn in the
++     * background color of the DC instead of in the color of the brush.
++     * The default raster operation is SRCCOPY, which is what is needed.
++     */
++
++    return statePtr->scratchDC;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinAAEnd --
++ *
++ *	Box-filters the off-screen buffer down to device resolution and
++ *	composites the result onto the destination.
++ *
++ * Results:
++ *	None.
++ *
++ *----------------------------------------------------------------------
++ */
++
++void
++TkWinAAEnd(
++    HDC destDC,			/* DC of the destination of the shape. */
++    int left,			/* Left edge of the shape, device coords. */
++    int top,			/* Top edge of the shape, device coords. */
++    int width,			/* Width of the shape, device pixels. */
++    int height,			/* Height of the shape, device pixels. */
++    COLORREF color)		/* Color of the shape. */
++{
++    TkWinAAState *statePtr = &aaState;
++    int scale = statePtr->scale;
++    DWORD *scratch, *dest;
++    int red = GetRValue(color);
++    int green = GetGValue(color);
++    int blue = GetBValue(color);
++    int x, y, i, j;
++
++    if ((width <= 0) || (height <= 0)) {
++	return;
++    }
++    if (!AAEnsureBuffer(statePtr, &statePtr->destDC,
++	    &statePtr->destBitmap, &statePtr->destBits,
++	    &statePtr->destWidth, &statePtr->destHeight,
++	    width, height)) {
++	return;
++    }
++
++    /*
++     * Copy the area of the destination that is going to be modified, so
++     * that it can be blended with the shape.
++     */
++
++    if (!BitBlt(statePtr->destDC, 0, 0, width, height,
++	    destDC, left, top, SRCCOPY)) {
++	return;
++    }
++    scratch = (DWORD *) statePtr->scratchBits;
++    dest = (DWORD *) statePtr->destBits;
++    for (y = 0; y < height; y++) {
++	DWORD *scratchRow = scratch
++		+ (size_t) y * scale * statePtr->scratchWidth;
++	DWORD *destRow = dest + (size_t) y * statePtr->destWidth;
++
++	for (x = 0; x < width; x++) {
++	    int covered = 0;
++	    int alpha;
++	    DWORD pixel;
++	    int nr, ng, nb;
++
++	    for (j = 0; j < scale; j++) {
++		DWORD *row = scratchRow + (size_t) j * statePtr->scratchWidth;
++
++		for (i = 0; i < scale; i++) {
++		    if ((row[x * scale + i] & 0x00FFFFFF)
++			    == AA_COLOR_TO_DWORD(AA_MASK_COLOR)) {
++			covered++;
++		    }
++		}
++	    }
++	    if (covered == 0) {
++		continue;
++	    }
++	    if (covered == scale * scale) {
++
++		/*
++		 * The pixel is completely covered: no blending needed.
++		 */
++
++		destRow[x] = AA_COLOR_TO_DWORD(color);
++		continue;
++	    }
++	    alpha = (covered * 255) / (scale * scale);
++	    pixel = destRow[x];
++	    nr = (red * alpha
++		    + (int) ((pixel >> 16) & 0xFF) * (255 - alpha) + 127) / 255;
++	    ng = (green * alpha
++		    + (int) ((pixel >> 8) & 0xFF) * (255 - alpha) + 127) / 255;
++	    nb = (blue * alpha
++		    + (int) (pixel & 0xFF) * (255 - alpha) + 127) / 255;
++	    destRow[x] = ((DWORD) nb) | ((DWORD) ng << 8) | ((DWORD) nr << 16);
++	}
++    }
++
++    /*
++     * Copy the blended area back to the destination.
++     */
++
++    BitBlt(destDC, left, top, width, height, statePtr->destDC, 0, 0, SRCCOPY);
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * AAFreeBuffers --
++ *
++ *	Releases the GDI resources of the anti-aliasing engine.
++ *
++ * Results:
++ *	None.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static void
++AAFreeBuffers(
++    TkWinAAState *statePtr)
++{
++    if (statePtr->scratchDC != NULL) {
++	if (statePtr->scratchBitmap != NULL) {
++	    SelectObject(statePtr->scratchDC, statePtr->scratchBitmap);
++	}
++	DeleteDC(statePtr->scratchDC);
++	statePtr->scratchDC = NULL;
++    }
++    if (statePtr->scratchBitmap != NULL) {
++	DeleteObject(statePtr->scratchBitmap);
++	statePtr->scratchBitmap = NULL;
++    }
++    statePtr->scratchBits = NULL;
++    statePtr->scratchWidth = 0;
++    statePtr->scratchHeight = 0;
++    if (statePtr->destDC != NULL) {
++	if (statePtr->destBitmap != NULL) {
++	    SelectObject(statePtr->destDC, statePtr->destBitmap);
++	}
++	DeleteDC(statePtr->destDC);
++	statePtr->destDC = NULL;
++    }
++    if (statePtr->destBitmap != NULL) {
++	DeleteObject(statePtr->destBitmap);
++	statePtr->destBitmap = NULL;
++    }
++    statePtr->destBits = NULL;
++    statePtr->destWidth = 0;
++    statePtr->destHeight = 0;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinCanvasAAEnter --
++ *
++ *	Starts an anti-aliased drawing pass for a canvas.  Nothing happens
++ *	if the canvas did not ask for anti-aliasing.
++ *
++ * Results:
++ *	None.
++ *
++ *----------------------------------------------------------------------
++ */
++
++void
++TkWinCanvasAAEnter(
++    TkCanvas *canvasPtr)	/* Canvas that is being redrawn. */
++{
++    if (!canvasPtr->aaEnabled) {
++	return;
++    }
++    if (!aaState.registered && (canvasPtr->interp != NULL)) {
++
++	/*
++	 * Register a clean up handler, so that the GDI resources of the
++	 * engine are released when the interpreter goes away.
++	 */
++
++	aaState.registered = 1;
++	Tcl_SetAssocData(canvasPtr->interp, "tkWinAAState",
++		AAInterpDeleteProc, &aaState);
++    }
++    TkWinAAEnter(canvasPtr->aaFactor);
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * TkWinCanvasAALeave --
++ *
++ *	Ends the anti-aliased drawing pass of a canvas.
++ *
++ * Results:
++ *	None.
++ *
++ *----------------------------------------------------------------------
++ */
++
++void
++TkWinCanvasAALeave(void)
++{
++    TkWinAALeave();
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * AAInterpDeleteProc --
++ *
++ *	Releases the GDI resources of the anti-aliasing engine when the
++ *	interpreter that used them goes away.
++ *
++ * Results:
++ *	None.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static void
++AAInterpDeleteProc(
++    ClientData clientData,	/* Pointer to the engine state. */
++    Tcl_Interp *interp)		/* Interpreter that is going away. */
++{
++    TkWinAAState *statePtr = (TkWinAAState *) clientData;
++
++    AAFreeBuffers(statePtr);
++    statePtr->registered = 0;
++}
+diff --git a/win/tkWinAA.h b/win/tkWinAA.h
+new file mode 100644
+index 000000000..c5381e5e4
+--- /dev/null
++++ b/win/tkWinAA.h
+@@ -0,0 +1,85 @@
++/*
++ * tkWinAA.h --
++ *
++ *	Manual anti-aliasing support for the Windows GDI back end of Tk.
++ *
++ *	GDI has no anti-aliasing for paths: every primitive is rasterized
++ *	with hard, aliased edges.  This module implements anti-aliasing by
++ *	hand.  A shape is rendered with ordinary GDI calls into an off-screen
++ *	buffer that is "scale" times larger than the device resolution, and
++ *	the buffer is then box-filtered down to device resolution.  Every
++ *	device pixel therefore receives the exact area of the shape that
++ *	falls into it, and that area is used as an alpha value when the
++ *	shape is composited onto the destination.
++ *
++ *	Only plain GDI is used: no GDI+, no Direct2D, no DirectWrite.
++ *
++ * Copyright (c) 2026 The tkgdipluscanvas authors.
++ *
++ * See the file "license.terms" for information on usage and redistribution
++ * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
++ */
++
++#ifndef _TKWINAA_H
++#define _TKWINAA_H
++
++#include <windows.h>
++
++/*
++ * Supersampling factors.  A factor of N means that every device pixel is
++ * sampled N*N times.
++ */
++
++#define TK_AA_MIN_SCALE		2
++#define TK_AA_MAX_SCALE		8
++#define TK_AA_DEFAULT_SCALE	4
++
++/*
++ * Limits for a single shape.  Shapes that are larger fall back to the
++ * plain aliased code path, so that one huge shape cannot blow up the
++ * scratch buffers.
++ */
++
++#define TK_AA_MAX_DIMENSION	4096
++#define TK_AA_MAX_SAMPLES	(16 * 1024 * 1024)
++
++/*
++ * Enter/leave an anti-aliased drawing pass.  While a pass is active, the
++ * drawing primitives of tkWinDraw.c render through the anti-aliasing
++ * engine.  Passes may be nested; the anti-aliased mode ends when the
++ * outermost TkWinAAEnter() has been matched by a TkWinAALeave().
++ */
++
++int	TkWinAAIsActive(void);
++void	TkWinAAEnter(int scale);
++void	TkWinAALeave(void);
++int	TkWinAAGetScale(void);
++
++/*
++ * Prepare the off-screen buffer for a shape whose bounding box in device
++ * coordinates is (left, top, left+width, top+height).  Returns the memory
++ * DC into which the shape must be drawn: its coordinates have to be
++ * translated by (-left, -top) and multiplied by the current scale factor.
++ * Returns NULL if the shape cannot be anti-aliased, in which case the
++ * caller must draw it the normal way.
++ */
++
++HDC	TkWinAABegin(HDC destDC, int left, int top, int width, int height);
++
++/*
++ * Finish an anti-aliased shape: box-filter the off-screen buffer down to
++ * device resolution and composite the result onto destDC at (left, top),
++ * using color as the color of the shape.
++ */
++
++void	TkWinAAEnd(HDC destDC, int left, int top, int width, int height,
++	COLORREF color);
++
++/*
++ * The color that shapes must be drawn with inside the off-screen buffer.
++ * The engine uses it to tell covered samples from uncovered ones.
++ */
++
++COLORREF	TkWinAAMaskColor(void);
++
++#endif /* _TKWINAA_H */
+diff --git a/win/tkWinDraw.c b/win/tkWinDraw.c
+index 3fa01e0a6..43ee0af6d 100644
+--- a/win/tkWinDraw.c
++++ b/win/tkWinDraw.c
+@@ -12,6 +12,7 @@
+  */
+ 
+ #include "tkWinInt.h"
++#include "tkWinAA.h"
+ 
+ /*
+  * These macros convert between X's bizarre angle units to radians.
+@@ -122,6 +123,15 @@ static int		DrawOrFillArc(Display *display, Drawable d, GC gc,
+ static void		RenderObject(HDC dc, GC gc, XPoint* points,
+ 			    int npoints, int mode, HPEN pen, WinDrawFunc func);
+ static HPEN		SetUpGraphicsPort(GC gc);
++static HPEN		SetUpGraphicsPortEx(GC gc, COLORREF color,
++			    int widthScale);
++static int		AAUsable(GC gc);
++static int		AARenderObject(HDC dc, GC gc, POINT *winPoints,
++			    int npoints, RECT *rectPtr, WinDrawFunc func);
++static int		AARenderArc(HDC dc, GC gc, int x, int y,
++			    unsigned int width, unsigned int height,
++			    int xstart, int ystart, int xend, int yend,
++			    int fill);
+ 
+ /*
+  *----------------------------------------------------------------------
+@@ -781,6 +791,118 @@ MakeAndStrokePath(
+     }
+ }
+ 
++/*
++ *----------------------------------------------------------------------
++ *
++ * AAUsable --
++ *
++ *	Determines whether a drawing primitive may be rendered with manual
++ *	anti-aliasing.  Some combinations of graphics context attributes
++ *	cannot be reproduced by the anti-aliasing engine and are left to
++ *	the plain GDI code path:
++ *
++ *	- Anything but a plain copy operation, because the engine blends
++ *	  the shape with the destination.
++ *	- Dashed lines, because the dash pattern of a GDI pen is defined
++ *	  in device pixels and would not be scaled along with the shape.
++ *	- Stippled fills, because the stipple pattern is not scaled
++ *	  either.
++ *
++ * Results:
++ *	Non-zero if the primitive may be anti-aliased.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static int
++AAUsable(
++    GC gc)			/* Graphics context to examine. */
++{
++    if (!TkWinAAIsActive()) {
++	return 0;
++    }
++    if (gc->function != GXcopy) {
++	return 0;
++    }
++    if (gc->line_style != LineSolid) {
++	return 0;
++    }
++    if ((gc->fill_style == FillStippled)
++	    || (gc->fill_style == FillOpaqueStippled)) {
++	return 0;
++    }
++    return 1;
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * AARenderObject --
++ *
++ *	Anti-aliased version of RenderObject.  The shape is rendered into
++ *	the off-screen buffer of the anti-aliasing engine, which is then
++ *	filtered down to device resolution and composited onto the
++ *	destination.
++ *
++ * Results:
++ *	1 if the shape was rendered, 0 if the caller has to fall back to
++ *	the normal code path.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static int
++AARenderObject(
++    HDC dc,			/* DC of the destination. */
++    GC gc,			/* Graphics context to use. */
++    POINT *winPoints,		/* Points of the shape, device coordinates. */
++    int npoints,		/* Number of points in winPoints. */
++    RECT *rectPtr,		/* Bounding box of the shape. */
++    WinDrawFunc func)		/* Polyline or Polygon. */
++{
++    int scale = TkWinAAGetScale();
++    int margin = gc->line_width + 1;
++    int left = rectPtr->left - margin;
++    int top = rectPtr->top - margin;
++    int width = rectPtr->right + margin - left;
++    int height = rectPtr->bottom + margin - top;
++    HDC aaDC;
++    HPEN aaPen, oldPen;
++    HBRUSH aaBrush, oldBrush;
++    POINT *scaledPoints;
++    int i;
++
++    aaDC = TkWinAABegin(dc, left, top, width, height);
++    if (aaDC == NULL) {
++	return 0;
++    }
++    scaledPoints = (POINT *) ckalloc(sizeof(POINT) * npoints);
++    for (i = 0; i < npoints; i++) {
++	scaledPoints[i].x = (winPoints[i].x - left) * scale;
++	scaledPoints[i].y = (winPoints[i].y - top) * scale;
++    }
++    if (func == Polyline) {
++	aaPen = SetUpGraphicsPortEx(gc, TkWinAAMaskColor(), scale);
++    } else {
++	aaPen = GetStockObject(NULL_PEN);
++    }
++    oldPen = SelectObject(aaDC, aaPen);
++    aaBrush = CreateSolidBrush(TkWinAAMaskColor());
++    oldBrush = SelectObject(aaDC, aaBrush);
++    SetPolyFillMode(aaDC, (gc->fill_rule == EvenOddRule) ? ALTERNATE
++	    : WINDING);
++    MakeAndStrokePath(aaDC, scaledPoints, npoints, func);
++    SelectObject(aaDC, oldPen);
++    SelectObject(aaDC, oldBrush);
++    if (func == Polyline) {
++	DeleteObject(aaPen);
++    }
++    DeleteObject(aaBrush);
++    ckfree(scaledPoints);
++    TkWinAAEnd(dc, left, top, width, height, (COLORREF) gc->foreground);
++    return 1;
++}
++
+ /*
+  *----------------------------------------------------------------------
+  *
+@@ -898,6 +1020,10 @@ RenderObject(
+ 	DeleteObject(SelectObject(dcMem, oldBitmap));
+ 	DeleteDC(dcMem);
+     } else {
++	if (AAUsable(gc)
++		&& AARenderObject(dc, gc, winPoints, npoints, &rect, func)) {
++	    return;
++	}
+ 	oldPen = SelectObject(dc, pen);
+ 	oldBrush = SelectObject(dc, CreateSolidBrush(gc->foreground));
+ 	SetROP2(dc, tkpWinRopModes[gc->function]);
+@@ -1175,6 +1301,83 @@ XFillArcs(
+     return ret;
+ }
+ 
++/*
++ *----------------------------------------------------------------------
++ *
++ * AARenderArc --
++ *
++ *	Anti-aliased version of the arc drawing code of DrawOrFillArc.  The
++ *	arc is rendered into the off-screen buffer of the anti-aliasing
++ *	engine, which is then filtered down to device resolution and
++ *	composited onto the destination.
++ *
++ * Results:
++ *	1 if the arc was rendered, 0 if the caller has to fall back to the
++ *	normal code path.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static int
++AARenderArc(
++    HDC dc,			/* DC of the destination. */
++    GC gc,			/* Graphics context to use. */
++    int x,			/* Left edge of the bounding box. */
++    int y,			/* Top edge of the bounding box. */
++    unsigned int width,		/* Width of the bounding box. */
++    unsigned int height,	/* Height of the bounding box. */
++    int xstart, int ystart,	/* Start point of the arc. */
++    int xend, int yend,		/* End point of the arc. */
++    int fill)			/* Non-zero to fill the arc. */
++{
++    int scale = TkWinAAGetScale();
++    int margin = gc->line_width + 1;
++    int left = x - margin;
++    int top = y - margin;
++    int boxWidth = (int) width + 2 + 2 * margin;
++    int boxHeight = (int) height + 2 + 2 * margin;
++    HDC aaDC;
++    HPEN aaPen, oldPen;
++    HBRUSH aaBrush, oldBrush;
++
++    aaDC = TkWinAABegin(dc, left, top, boxWidth, boxHeight);
++    if (aaDC == NULL) {
++	return 0;
++    }
++    aaPen = SetUpGraphicsPortEx(gc, TkWinAAMaskColor(), scale);
++    oldPen = SelectObject(aaDC, aaPen);
++    if (!fill) {
++	SetBkMode(aaDC, TRANSPARENT);
++	Arc(aaDC, (x - left) * scale, (y - top) * scale,
++		(x + (int) width + 1 - left) * scale,
++		(y + (int) height + 1 - top) * scale,
++		(xstart - left) * scale, (ystart - top) * scale,
++		(xend - left) * scale, (yend - top) * scale);
++    } else {
++	aaBrush = CreateSolidBrush(TkWinAAMaskColor());
++	oldBrush = SelectObject(aaDC, aaBrush);
++	if (gc->arc_mode == ArcChord) {
++	    Chord(aaDC, (x - left) * scale, (y - top) * scale,
++		    (x + (int) width + 1 - left) * scale,
++		    (y + (int) height + 1 - top) * scale,
++		    (xstart - left) * scale, (ystart - top) * scale,
++		    (xend - left) * scale, (yend - top) * scale);
++	} else if (gc->arc_mode == ArcPieSlice) {
++	    Pie(aaDC, (x - left) * scale, (y - top) * scale,
++		    (x + (int) width + 1 - left) * scale,
++		    (y + (int) height + 1 - top) * scale,
++		    (xstart - left) * scale, (ystart - top) * scale,
++		    (xend - left) * scale, (yend - top) * scale);
++	}
++	SelectObject(aaDC, oldBrush);
++	DeleteObject(aaBrush);
++    }
++    SelectObject(aaDC, oldPen);
++    DeleteObject(aaPen);
++    TkWinAAEnd(dc, left, top, boxWidth, boxHeight, (COLORREF) gc->foreground);
++    return 1;
++}
++
+ /*
+  *----------------------------------------------------------------------
+  *
+@@ -1287,6 +1490,13 @@ DrawOrFillArc(
+      * definitions between X and Windows.
+      */
+ 
++    if (AAUsable(gc)
++	    && AARenderArc(dc, gc, x, y, width, height,
++		    xstart, ystart, xend, yend, fill)) {
++	TkWinReleaseDrawableDC(d, dc, &state);
++	return Success;
++    }
++
+     pen = SetUpGraphicsPort(gc);
+     oldPen = SelectObject(dc, pen);
+     if (!fill) {
+@@ -1335,8 +1545,37 @@ DrawOrFillArc(
+ static HPEN
+ SetUpGraphicsPort(
+     GC gc)
++{
++    return SetUpGraphicsPortEx(gc, (COLORREF) gc->foreground, 1);
++}
++
++/*
++ *----------------------------------------------------------------------
++ *
++ * SetUpGraphicsPortEx --
++ *
++ *	Set up the graphics port from the given GC, using the given color
++ *	and scaling the width of the pen.  The color and the scaling are
++ *	needed by the anti-aliasing engine, which draws the shape into an
++ *	off-screen buffer that has a higher resolution than the device.
++ *
++ * Results:
++ *	The pen to use.
++ *
++ * Side effects:
++ *	None.
++ *
++ *----------------------------------------------------------------------
++ */
++
++static HPEN
++SetUpGraphicsPortEx(
++    GC gc,
++    COLORREF color,		/* Color of the pen. */
++    int widthScale)		/* Factor to scale the width of the pen. */
+ {
+     DWORD style;
++    int width = gc->line_width;
+ 
+     if (gc->line_style == LineOnOffDash) {
+ 	unsigned char *p = (unsigned char *) &(gc->dashes);
+@@ -1364,13 +1603,17 @@ SetUpGraphicsPort(
+     } else {
+ 	style = PS_SOLID;
+     }
+-    if (gc->line_width < 2) {
+-	return CreatePen((int) style, gc->line_width, gc->foreground);
++    if (width < 1) {
++	width = 1;
++    }
++    width *= widthScale;
++    if (width < 2) {
++	return CreatePen((int) style, width, color);
+     } else {
+ 	LOGBRUSH lb;
+ 
+ 	lb.lbStyle = BS_SOLID;
+-	lb.lbColor = gc->foreground;
++	lb.lbColor = color;
+ 	lb.lbHatch = 0;
+ 
+ 	style |= PS_GEOMETRIC;
+@@ -1397,7 +1640,7 @@ SetUpGraphicsPort(
+ 	    style |= PS_JOIN_BEVEL;
+ 	    break;
+ 	}
+-	return ExtCreatePen(style, (DWORD) gc->line_width, &lb, 0, NULL);
++	return ExtCreatePen(style, (DWORD) width, &lb, 0, NULL);
+     }
+ }
+ 
+-- 
+2.55.0.windows.2
+
