@@ -26,6 +26,28 @@ proc bgerror {msg} {
     log "BGERROR: $msg"
 }
 
+proc roundedRectPoints {x1 y1 x2 y2 r steps} {
+    # Points that approximate a rounded rectangle.  The corners are
+    # sampled from the arcs, so that the fill follows the rounded shape
+    # instead of the sharp one.  The centre of each arc is the corner of
+    # the rectangle inset by the radius.
+    set pts {}
+    foreach corner [list \
+	    [list [expr {$x2-$r}] [expr {$y1+$r}] -90 0] \
+	    [list [expr {$x2-$r}] [expr {$y2-$r}] 0 90] \
+	    [list [expr {$x1+$r}] [expr {$y2-$r}] 90 180] \
+	    [list [expr {$x1+$r}] [expr {$y1+$r}] 180 270]] {
+	lassign $corner cx cy from to
+	for {set i 0} {$i <= $steps} {incr i} {
+	    set a [expr {$from + ($to - $from) * double($i) / $steps}]
+	    set rad [expr {$a * acos(-1.0) / 180.0}]
+	    lappend pts [expr {round($cx + $r * cos($rad))}] \
+		    [expr {round($cy + $r * sin($rad))}]
+	}
+    }
+    return $pts
+}
+
 proc drawScene {c} {
     $c delete all
 
@@ -43,21 +65,21 @@ proc drawScene {c} {
     $c create arc 20 170 140 260 -start 30 -extent 140 -style pieslice \
         -fill "#ffe080" -outline "#806000" -width 2
 
-    # A rounded shape, assembled from arcs and rectangles.
-    $c create rectangle 170 170 290 250 -fill "#b0d0b0" -outline "" \
-        -tags corner
-    $c create arc 150 170 210 230 -start 90 -extent 90 -style pieslice \
-        -fill "#b0d0b0" -outline "" -tags corner
-    $c create arc 250 170 310 230 -start 0 -extent 90 -style pieslice \
-        -fill "#b0d0b0" -outline "" -tags corner
-    $c create arc 150 210 210 270 -start 180 -extent 90 -style pieslice \
-        -fill "#b0d0b0" -outline "" -tags corner
-    $c create arc 250 210 310 270 -start 270 -extent 90 -style pieslice \
-        -fill "#b0d0b0" -outline "" -tags corner
+    # Rounded corners, the cheap way: a rectangle drawn as a polygon with
+    # a thick outline and round joins.  GDI rounds the corners of the
+    # stroke, but the edge of the stroke is still jagged.
+    $c create polygon {170 180 290 180 290 250 170 250} \
+        -fill "" -outline "#309050" -width 12 -joinstyle round
+
+    # Rounded corners, the accurate way: a polygon whose corners follow
+    # the arcs.  The edges of the shape are curved, so they need the
+    # anti-aliasing to look smooth.
+    $c create polygon [roundedRectPoints 330 170 420 250 14 6] \
+        -fill "#b0d0b0" -outline "#407050" -width 2
 
     # Text is not touched by the anti-aliasing: GDI already smooths
     # TrueType glyphs by itself.
-    $c create text 350 210 -text "GDI text" -font TkDefaultFont \
+    $c create text 200 265 -text "GDI text" -font TkDefaultFont \
         -fill "#404040"
 }
 

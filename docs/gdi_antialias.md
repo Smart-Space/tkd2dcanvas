@@ -162,7 +162,25 @@ wish86t.exe all.tcl -file {canv*.test}
 
 当前结果：395 个用例，309 通过，86 跳过（字体、图片类型等环境约束），0 失败。
 
-## 6. 与本仓库（Direct2D 版）的关系
+## 6. 圆角：不需要新的图元类型
+
+Tk 的 canvas 虽然没有 `roundedrectangle` 图元，但 **polygon 自带 `-joinstyle`
+（8.6 里默认值就是 `round`）和 `-width`**，所以圆角有两种做法：
+
+| 做法 | 写法 | 说明 |
+| --- | --- | --- |
+| 粗描边 + 圆角接头 | `create polygon {x1 y1 x2 y1 x2 y2 x1 y2} -fill "" -outline c -width 12 -joinstyle round` | GDI 把描边的**外角**倒圆，得到一条圆角的边框 |
+| 填充圆角矩形 | 让 polygon 的**顶点落在圆弧上**（采样圆弧，见 `aa_demo.tcl` 的 `roundedRectPoints`） | 填充跟着圆角走；否则填充仍是直角，圆角接头只作用在描边上 |
+
+要注意：第二种做法里，如果只是给直角矩形加 `-joinstyle round`，**填充部分仍是直角**，
+而描边的圆角接头只覆盖外侧，内侧会留下一个小缺口——所以填充圆角矩形必须自己把
+圆弧采样成顶点。
+
+这两种做法在原生 GDI 下边缘都是锯齿的（演示图左半边），开了抗锯齿之后才是真正
+平滑的（演示图右半边）。换句话说：**圆角本身用 polygon 就能凑出来，抗锯齿才是
+让圆角"好看"的那一半**。
+
+## 7. 与本仓库（Direct2D 版）的关系
 
 本仓库的 `tkd2dcanvas` 用的是 Direct2D/DirectWrite，抗锯齿是渲染器自带的
 （`SetAntialiasMode(PER_PRIMITIVE)`），不需要手工计算。
