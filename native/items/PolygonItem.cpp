@@ -198,6 +198,13 @@ void PolygonItem::Draw(Renderer& renderer) const {
         }
     }
     if (const auto& outline = Style().outline) {
-        renderer.drawLine(path, ItemPenStyle(*outline, Style(), CapStyle::Round, Style().join));
+        PenStyle pen = ItemPenStyle(*outline, Style(), CapStyle::Round, Style().join);
+        if (points_.size() < 3) {
+            // The round ends of a two point polygon are joins (Tk draws the
+            // polygon as a closed path), so they are not moved along the
+            // segment: the round shape stays exactly where it was drawn.
+            pen.capEnds = false;
+        }
+        renderer.drawLine(path, pen);
     }
 }

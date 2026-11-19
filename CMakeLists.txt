@@ -175,7 +175,7 @@ endif()  # TKG_CORE_ONLY
 
 if(TKG_BUILD_TESTS AND WIN32)
     enable_testing()
-    foreach(test_name IN ITEMS test_canvas_model test_tags test_geometry test_hit_test test_bbox test_smooth_curve test_hit_search test_view)
+    foreach(test_name IN ITEMS test_canvas_model test_tags test_geometry test_hit_test test_bbox test_smooth_curve test_hit_search test_view test_stroke_align)
         add_executable(${test_name} tests/cpp/${test_name}.cpp ${TKG_CORE_SOURCES})
         target_include_directories(${test_name} PRIVATE native/include)
         add_test(NAME ${test_name} COMMAND ${test_name})

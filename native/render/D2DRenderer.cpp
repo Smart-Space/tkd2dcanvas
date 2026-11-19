@@ -16,6 +16,7 @@
 #include "PenCache.h"
 #include "Utf16.h"
 #include "tkd2dcanvas/Anchor.h"
+#include "tkd2dcanvas/StrokeAlign.h"
 
 struct CachedBitmap {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
@@ -179,80 +180,9 @@ D2D1::Matrix3x2F Compose3x2(const D2D1_MATRIX_3X2_F& A,
 
 // Pixel alignment for strokes.
 //
-// Tk's canvas draws shapes with aliased GDI strokes: a stroke covers whole
-// pixels, and an edge that falls on a half pixel is resolved by sampling the
-// pixel centre. Direct2D antialiases instead, so a stroke edge on a half
-// pixel spills over two pixel rows with 50% coverage each. A 1px border drawn
-// that way looks 2px wide and soft, while Tk draws it as one solid row - the
-// classic example is TinUI's rounded button, which stacks a thick outline
-// polygon and an inset face polygon to fake a 1px border.
-//
-// Shifting the stroke geometry by half a pixel puts the stroke edges back on
-// the pixel grid: the coverage becomes 0/1 per pixel (crisp, like Tk) while
-// curved and diagonal edges keep their antialiasing.
-bool AlignStrokePath(const Path& path, double width, Path& out) {
-    if (path.points.size() < 2 || width <= 0.0) return false;
-
-    const double rounded = std::floor(width + 0.5);
-    if (std::abs(rounded - width) > 1e-9) return false;  // fractional width
-    if (std::fmod(rounded, 2.0) == 0.0) return false;    // even width: edges are on the grid
-
-    auto integral = [](double value) {
-        return std::abs(value - std::round(value)) <= 1e-9;
-    };
-
-    if (!path.closed) {
-        // Only a single straight segment can be moved onto the pixel grid.
-        // Only the axis perpendicular to the segment matters for the
-        // stroke edges, so the endpoints may sit at arbitrary positions
-        // along it (e.g. a thumb spanning fractional view fractions).
-        if (path.points.size() != 2) return false;
-        const Point& a = path.points[0];
-        const Point& b = path.points[1];
-        if (a.y == b.y) {  // horizontal: shift perpendicular to the line
-            if (!integral(a.y)) return false;
-            out = path;
-            out.points[0].y += 0.5;
-            out.points[1].y += 0.5;
-            return true;
-        }
-        if (a.x == b.x) {  // vertical
-            if (!integral(a.x)) return false;
-            out = path;
-            out.points[0].x += 0.5;
-            out.points[1].x += 0.5;
-            return true;
-        }
-        return false;  // diagonal
-    }
-
-    if (path.points.size() < 3) return false;
-
-    // A diagonal edge can't be aligned at all: keep the raw path.
-    const std::size_t n = path.points.size();
-    for (std::size_t i = 0; i < n; ++i) {
-        const Point& p = path.points[i];
-        const Point& next = path.points[(i + 1) % n];
-        if (p.x != next.x && p.y != next.y) return false;  // diagonal edge
-    }
-
-    out = path;
-    // Align every integral vertex in both axes independently. The path stays
-    // closed and axis-aligned (a horizontal edge's two endpoints share their
-    // y, a vertical edge's share their x, so they always move together).
-    bool aligned = false;
-    for (Point& p : out.points) {
-        if (integral(p.x)) {
-            p.x += 0.5;
-            aligned = true;
-        }
-        if (integral(p.y)) {
-            p.y += 0.5;
-            aligned = true;
-        }
-    }
-    return aligned;
-}
+// See tkd2dcanvas/StrokeAlign.h: the stroke edges are moved onto the pixel
+// grid so that a 1px border stays 1px wide and crisp, and so that items
+// which are meant to line up share the same sub-pixel phase.
 }  // namespace
 
 void D2DRenderer::clear(const Color& color) {
@@ -296,7 +226,7 @@ void D2DRenderer::drawLine(const Path& path, const PenStyle& pen) {
     // Half-pixel stroke edges are moved onto the pixel grid (see
     // AlignStrokePath), so that a 1px border stays 1px wide and crisp.
     Path aligned;
-    if (AlignStrokePath(path, pen.width, aligned)) {
+    if (tkd2dcanvas::AlignStrokePath(path, pen.width, pen.cap, pen.capEnds, aligned)) {
         BuildGeometry(aligned, geometry.Get());
     } else {
         BuildGeometry(path, geometry.Get());

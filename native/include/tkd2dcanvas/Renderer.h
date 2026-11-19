@@ -21,6 +21,10 @@ struct PenStyle {
     DashPattern dash;
     CapStyle cap = CapStyle::Flat;
     JoinStyle join = JoinStyle::Miter;
+    // True when the stroke ends in real caps. A two point polygon draws a
+    // segment with round *joins* at its degenerate vertex (Tk's polygons have
+    // no -capstyle option), and such an end is not moved along the segment.
+    bool capEnds = true;
     bool antialias = true;
 };
 
