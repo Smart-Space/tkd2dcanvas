@@ -63,16 +63,18 @@ DWORD GdiCapStyle(CapStyle cap) {
 // symmetric and smoothly anti-aliased, and keeps it consistent with the
 // rest of the engine (the same hi-res mask + box filter is used).
 //
-// center/outward are in device pixels; radiusHi is the cap radius in
-// hi-res samples (the pen width is an integer number of device pixels,
-// multiplied by the scale factor).
+// center is given in samples relative to the *shape* (the origin of the
+// shape's bounding box); offsetX/offsetY is the tile's origin relative to
+// the shape, also in samples.  The cap therefore ends up at exactly the
+// same place no matter which tile it is drawn into.
 void DrawRoundCapEnd(DWORD* bits, int scratchWidth, int scale,
                      double centerX, double centerY,
                      double outwardX, double outwardY,
                      double radiusHi,
-                     int left, int top, int hiWidth, int hiHeight) {
-    const double cx = (centerX - left) * scale;
-    const double cy = (centerY - top) * scale;
+                     int offsetX, int offsetY,
+                     int hiWidth, int hiHeight) {
+    const double cx = centerX - offsetX;
+    const double cy = centerY - offsetY;
     const double r2 = radiusHi * radiusHi;
     const int x0 = std::max(0, static_cast<int>(std::floor(cx - radiusHi)));
     const int x1 = std::min(hiWidth - 1, static_cast<int>(std::floor(cx + radiusHi)));
@@ -118,7 +120,48 @@ void GdiAntialias::SetScale(int scale) {
     scale_ = std::clamp(scale, kMinScale, kMaxScale);
 }
 
+void GdiAntialias::SetScratchBudget(long long bytes) {
+    scratchBudget_ = bytes > 0 ? bytes : kScratchBudgetBytes;
+}
+
+long long GdiAntialias::ScratchBytes() const {
+    const long long scratch =
+        static_cast<long long>(scratchWidth_) * scratchHeight_ * 4;
+    const long long readBack =
+        static_cast<long long>(readBackWidth_) * readBackHeight_ * 4;
+    return scratch + readBack;
+}
+
+HPEN GdiAntialias::MaskPen(int widthHi, DWORD capStyle, DWORD joinStyle) {
+    for (const CachedPen& entry : penCache_) {
+        if (entry.widthHi == widthHi && entry.capStyle == capStyle &&
+            entry.joinStyle == joinStyle) {
+            return entry.pen;
+        }
+    }
+
+    LOGBRUSH logBrush;
+    logBrush.lbStyle = BS_SOLID;
+    logBrush.lbColor = kMaskColor;
+    logBrush.lbHatch = 0;
+    const DWORD style = PS_GEOMETRIC | capStyle | joinStyle;
+    HPEN pen = ExtCreatePen(style, static_cast<DWORD>(widthHi), &logBrush, 0, nullptr);
+    if (!pen) return nullptr;
+
+    penCache_.push_back(CachedPen{widthHi, capStyle, joinStyle, pen});
+    return pen;
+}
+
 void GdiAntialias::ReleaseBuffers() {
+    if (maskBrush_) {
+        DeleteObject(maskBrush_);
+        maskBrush_ = nullptr;
+    }
+    for (CachedPen& entry : penCache_) {
+        if (entry.pen) DeleteObject(entry.pen);
+    }
+    penCache_.clear();
+
     if (scratchDC_) {
         if (scratchBitmap_) SelectObject(scratchDC_, scratchBitmap_);
         DeleteDC(scratchDC_);
@@ -258,12 +301,107 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
     const double penWidth = pen ? std::max(1.0, pen->width) : 0.0;
     const double margin = penWidth + 1.0;
 
-    const int left = static_cast<int>(std::floor(minX - margin));
-    const int top = static_cast<int>(std::floor(minY - margin));
-    const int width = static_cast<int>(std::ceil(maxX + margin)) - left;
-    const int height = static_cast<int>(std::ceil(maxY + margin)) - top;
-    if (width <= 0 || height <= 0) return false;
-    if (width > kMaxDimension || height > kMaxDimension) return false;
+    const int shapeLeft = static_cast<int>(std::floor(minX - margin));
+    const int shapeTop = static_cast<int>(std::floor(minY - margin));
+    const int shapeWidth = static_cast<int>(std::ceil(maxX + margin)) - shapeLeft;
+    const int shapeHeight = static_cast<int>(std::ceil(maxY + margin)) - shapeTop;
+    if (shapeWidth <= 0 || shapeHeight <= 0) return false;
+    if (shapeWidth > kMaxDimension || shapeHeight > kMaxDimension) return false;
+
+    // Only the part of the shape that lies inside the clip region of the
+    // destination can reach the screen; the rest does not have to be
+    // rendered at all.  While scrolling only a thin strip is repainted,
+    // so this alone keeps the work (and the buffers) small.
+    RECT clipBox{};
+    GetClipBox(dc, &clipBox);
+    const int regionLeft = std::max(shapeLeft, static_cast<int>(clipBox.left));
+    const int regionTop = std::max(shapeTop, static_cast<int>(clipBox.top));
+    const int regionRight =
+        std::min(shapeLeft + shapeWidth, static_cast<int>(clipBox.right));
+    const int regionBottom =
+        std::min(shapeTop + shapeHeight, static_cast<int>(clipBox.bottom));
+    if (regionRight <= regionLeft || regionBottom <= regionTop) {
+        return true;  // nothing of this shape is visible
+    }
+
+    // The shape is rendered in tiles, so that the off-screen buffers stay
+    // within the memory budget no matter how big the shape is.  The number
+    // of tiles is derived from the *shape*, not from the visible region:
+    // that way the decision to fall back to plain GDI does not depend on
+    // what happens to be on screen, and a shape looks the same whether it
+    // is drawn in a full repaint or in a scroll strip.
+    const long long shapeArea =
+        static_cast<long long>(shapeWidth) * shapeHeight;
+    if (shapeArea * scale_ * scale_ > kMaxSamples) return false;
+
+    const int tile = TileSize();
+    const long long tilesX = (shapeWidth + tile - 1) / tile;
+    const long long tilesY = (shapeHeight + tile - 1) / tile;
+    if (tilesX * tilesY > kMaxTiles) return false;
+
+    // The shape, scaled up, with the shape's bounding box at the origin.
+    // The coordinates are rounded towards minus infinity and are relative
+    // to the *shape*, not to the tile: the tile origin is a whole number of
+    // device pixels, so the shape keeps exactly the same position inside
+    // the sample grid, no matter which tile it is drawn into.
+    std::vector<POINT>& shapeScaled = shapeScaled_;
+    shapeScaled.resize(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        shapeScaled[static_cast<size_t>(i)].x =
+            static_cast<LONG>(std::floor((points[i].x - shapeLeft) * scale_));
+        shapeScaled[static_cast<size_t>(i)].y =
+            static_cast<LONG>(std::floor((points[i].y - shapeTop) * scale_));
+    }
+
+    bool ok = true;
+    for (int top = regionTop; top < regionBottom; top += tile) {
+        const int height = std::min(tile, regionBottom - top);
+        for (int left = regionLeft; left < regionRight; left += tile) {
+            const int width = std::min(tile, regionRight - left);
+            ok = RenderTile(dc, points, shapeScaled.data(), count, closed, pen,
+                            brush, shapeLeft, shapeTop, left, top, width,
+                            height) && ok;
+        }
+    }
+
+    // The buffers are only grown, never shrunk.  A single big shape would
+    // therefore keep its (huge) scratch buffer alive for the rest of the
+    // widget's life - and every canvas widget has its own renderer.  Give
+    // the memory back once the shape is done.
+    TrimBuffers();
+    return ok;
+}
+
+int GdiAntialias::TileSize() const {
+    // The scratch buffer of a tile holds tile*scale samples per side, at
+    // four bytes each; the read-back buffer holds the tile itself.  The
+    // tile size is chosen so that both together stay inside the budget.
+    const double bytesPerTile =
+        4.0 * (static_cast<double>(scale_) * scale_ + 1.0);
+    int tile = static_cast<int>(
+        std::sqrt(static_cast<double>(scratchBudget_) / bytesPerTile));
+    if (tile < 64) tile = 64;
+    // The buffers are rounded up to a multiple of 64 samples resp. pixels,
+    // so the real size can be a little bigger than the estimate.
+    while (tile > 64 && BufferBytes(tile) > scratchBudget_) tile -= 8;
+    return tile;
+}
+
+long long GdiAntialias::BufferBytes(int tile) const {
+    // Same rounding as EnsureScratch / EnsureReadBack.
+    const int samples = (tile * scale_ + 63) & ~63;
+    const int pixels = (tile + 63) & ~63;
+    return static_cast<long long>(samples) * samples * 4 +
+           static_cast<long long>(pixels) * pixels * 4;
+}
+
+bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
+                               const POINT* shapeScaled, int count,
+                               bool closed, const PenStyle* pen,
+                               const BrushStyle* brush,
+                               int shapeLeft, int shapeTop,
+                               int left, int top, int width, int height) {
+    if (width <= 0 || height <= 0) return true;
 
     const int hiWidth = width * scale_;
     const int hiHeight = height * scale_;
@@ -271,9 +409,10 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
     if (!EnsureScratch(hiWidth, hiHeight)) return false;
 
     // Clear the part of the buffer that is going to be read back: uncovered
-    // samples must differ from the mask color.  Only the rows of the shape
-    // itself are cleared (not the whole buffer) - the buffer can be huge and
-    // clearing all of it for every shape would dominate the rendering time.
+    // samples must differ from the mask color.  Only the rows of the tile
+    // itself are cleared (not the whole buffer) - the buffer can be much
+    // bigger than the tile and clearing all of it for every tile would
+    // dominate the rendering time.
     for (int y = 0; y < hiHeight; ++y) {
         DWORD* row = static_cast<DWORD*>(scratchBits_) +
                      static_cast<size_t>(y) * scratchWidth_;
@@ -286,20 +425,25 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
     // background color of the DC instead of in the color of the brush.
     // The default raster operation is SRCCOPY, which is what is needed.
 
-    // The shape, scaled up and moved so that its bounding box starts at the
-    // origin of the buffer.
-    std::vector<POINT> scaled(static_cast<size_t>(count));
+    // The shape, scaled up and moved so that the tile starts at the origin
+    // of the buffer.  The points are given relative to the shape's bounding
+    // box; the tile's origin is a whole number of device pixels, so the
+    // shape keeps exactly the same position inside the sample grid, no
+    // matter which tile it is drawn into.
+    const int offsetX = (left - shapeLeft) * scale_;
+    const int offsetY = (top - shapeTop) * scale_;
+    std::vector<POINT>& scaled = tileScaled_;
+    scaled.resize(static_cast<size_t>(count));
     for (int i = 0; i < count; ++i) {
-        scaled[static_cast<size_t>(i)].x =
-            static_cast<LONG>((points[i].x - left) * scale_);
-        scaled[static_cast<size_t>(i)].y =
-            static_cast<LONG>((points[i].y - top) * scale_);
+        scaled[static_cast<size_t>(i)].x = shapeScaled[i].x - offsetX;
+        scaled[static_cast<size_t>(i)].y = shapeScaled[i].y - offsetY;
     }
 
     HPEN penHandle = nullptr;
     HBRUSH brushHandle = nullptr;
     HGDIOBJ oldPen = nullptr;
     HGDIOBJ oldBrush = nullptr;
+    bool penIsCached = false;
 
     if (pen) {
         const int widthHi = std::max(1, static_cast<int>(std::lround(pen->width))) * scale_;
@@ -309,9 +453,10 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
         const bool analyticCaps = !closed && pen->cap == CapStyle::Round &&
                                   pen->dash.IsSolid();
         const DWORD capStyle = analyticCaps ? PS_ENDCAP_FLAT : GdiCapStyle(pen->cap);
-        DWORD style = PS_GEOMETRIC | capStyle | GdiJoinStyle(pen->join);
+        const DWORD joinStyle = GdiJoinStyle(pen->join);
 
-        // A custom dash pattern, scaled along with the shape.
+        // A custom dash pattern, scaled along with the shape.  Dashed pens
+        // are not cached (they are rare and the pattern differs per shape).
         std::vector<DWORD> dashes;
         if (!pen->dash.IsSolid()) {
             for (float dash : pen->dash.dashes) {
@@ -323,25 +468,35 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
             if (dashes.size() % 2 != 0) {
                 dashes.push_back(dashes.back());
             }
-            if (dashes.size() >= 2) {
-                style |= PS_DASH;
-            } else {
-                dashes.clear();
-            }
         }
 
-        LOGBRUSH logBrush;
-        logBrush.lbStyle = BS_SOLID;
-        logBrush.lbColor = kMaskColor;
-        logBrush.lbHatch = 0;
-        penHandle = ExtCreatePen(style, static_cast<DWORD>(widthHi), &logBrush,
-                                 static_cast<DWORD>(dashes.size()),
-                                 dashes.empty() ? nullptr : dashes.data());
+        if (dashes.empty()) {
+            penHandle = MaskPen(widthHi, capStyle, joinStyle);
+            penIsCached = penHandle != nullptr;
+        }
+        if (!penIsCached) {
+            LOGBRUSH logBrush;
+            logBrush.lbStyle = BS_SOLID;
+            logBrush.lbColor = kMaskColor;
+            logBrush.lbHatch = 0;
+            DWORD style = PS_GEOMETRIC | capStyle | joinStyle;
+            if (!dashes.empty()) {
+                style |= PS_DASH;
+            }
+            penHandle = ExtCreatePen(style, static_cast<DWORD>(widthHi), &logBrush,
+                                     static_cast<DWORD>(dashes.size()),
+                                     dashes.empty() ? nullptr : dashes.data());
+        }
     } else {
         penHandle = static_cast<HPEN>(GetStockObject(NULL_PEN));
     }
     if (brush) {
-        brushHandle = CreateSolidBrush(kMaskColor);
+        // The fill always uses the mask color, so one brush serves every
+        // shape.  Creating one per shape would churn GDI objects.
+        if (!maskBrush_) {
+            maskBrush_ = CreateSolidBrush(kMaskColor);
+        }
+        brushHandle = maskBrush_;
     }
 
     oldPen = SelectObject(scratchDC_, penHandle);
@@ -377,9 +532,13 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
                 double outY = from.y - to.y;
                 const double len = std::hypot(outX, outY);
                 if (len > 0.0) { outX /= len; outY /= len; }
+                // The centre is given relative to the shape, the offset
+                // moves it into the tile.
+                const double centerX = (from.x - shapeLeft) * scale_;
+                const double centerY = (from.y - shapeTop) * scale_;
                 DrawRoundCapEnd(static_cast<DWORD*>(scratchBits_), scratchWidth_, scale_,
-                                from.x, from.y, outX, outY,
-                                radiusHi, left, top, hiWidth, hiHeight);
+                                centerX, centerY, outX, outY,
+                                radiusHi, offsetX, offsetY, hiWidth, hiHeight);
             }
         }
     }
@@ -387,9 +546,8 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
     SelectObject(scratchDC_, oldPen);
     if (brush) {
         SelectObject(scratchDC_, oldBrush);
-        DeleteObject(brushHandle);
     }
-    if (pen) {
+    if (pen && !penIsCached) {
         DeleteObject(penHandle);
     }
 
@@ -458,14 +616,7 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
     const BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
     const BOOL ab = AlphaBlend(dc, left, top, width, height, readBackDC_, 0, 0,
                                width, height, blend);
-    const bool ok = ab != 0;
-
-    // The buffers are only grown, never shrunk.  A single big shape would
-    // therefore keep its (huge) scratch buffer alive for the rest of the
-    // widget's life - and every canvas widget has its own renderer.  Give
-    // the memory back once the shape is done.
-    TrimBuffers();
-    return ok;
+    return ab != 0;
 }
 
 }  // namespace tkd2dcanvas

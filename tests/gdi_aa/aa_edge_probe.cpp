@@ -198,6 +198,89 @@ void TestSharedEdgeSeam() {
     (void)blue;
 }
 
+// ---------------------------------------------------------------------------
+// 4. 分块渲染是不可见的
+// ---------------------------------------------------------------------------
+// 抗锯齿引擎把形状切成若干块（tile）分别超采样，这样离屏缓冲的大小就只
+// 取决于内存预算，而不再随图元变大。分块必须是无损的：同一个形状，用不同
+// 的块大小渲染出来的像素必须逐字节相同。
+//
+// 另外，离屏缓冲的实际大小必须待在预算之内 —— 这正是"滚动时内存越涨越高"
+// 的那道保险。
+void TestTilingIsInvisible() {
+    // 一个跨越好几块的椭圆（默认块大小是 128 像素）。
+    AaPoint big[64];
+    for (int i = 0; i < 64; ++i) {
+        const double a = 2.0 * 3.14159265358979323846 * i / 64.0;
+        big[i].x = 100.0 + 95.0 * std::cos(a);
+        big[i].y = 100.0 + 95.0 * std::sin(a);
+    }
+
+    // 参考：整块渲染（预算大到只需要一块）。
+    ClearDestination();
+    std::vector<DWORD> reference(static_cast<size_t>(kWidth) * kHeight);
+    {
+        tkd2dcanvas::GdiAntialias aa;
+        aa.SetScale(4);
+        aa.SetScratchBudget(64LL * 1024 * 1024);
+        aa.FillPolygon(dc, big, 64, Color(32, 96, 160));
+        std::memcpy(reference.data(), pixels, reference.size() * sizeof(DWORD));
+    }
+
+    // 分块渲染（默认预算）。
+    ClearDestination();
+    tkd2dcanvas::GdiAntialias aa;
+    aa.SetScale(4);
+    aa.FillPolygon(dc, big, 64, Color(32, 96, 160));
+
+    int mismatched = 0;
+    for (int y = 0; y < kHeight; ++y) {
+        for (int x = 0; x < kWidth; ++x) {
+            if (pixels[y * kWidth + x] != reference[y * kWidth + x]) ++mismatched;
+        }
+    }
+    std::printf("4. tiling: %d of %d pixels differ (tile %d px)\n", mismatched,
+                kWidth * kHeight, aa.TileSize());
+    Check(mismatched == 0, "rendering a shape in tiles gives the same pixels");
+
+    // 离屏缓冲必须待在预算之内。
+    const long long budget = tkd2dcanvas::GdiAntialias::kScratchBudgetBytes;
+    Check(aa.ScratchBytes() <= budget,
+          "the off-screen buffers stay inside the memory budget");
+    std::printf("   buffers %lld bytes, budget %lld bytes\n", aa.ScratchBytes(),
+                budget);
+
+    // 再来一遍：形状挪到各个亚像素位置（也跨越块边界），分块和整块必须一致。
+    int worst = 0;
+    for (int step = 0; step < 20; ++step) {
+        const double dx = step * 0.05;
+        AaPoint moved[64];
+        for (int i = 0; i < 64; ++i) {
+            moved[i].x = big[i].x + dx;
+            moved[i].y = big[i].y + dx * 0.5;
+        }
+        ClearDestination();
+        {
+            tkd2dcanvas::GdiAntialias whole;
+            whole.SetScale(4);
+            whole.SetScratchBudget(64LL * 1024 * 1024);
+            whole.FillPolygon(dc, moved, 64, Color(32, 96, 160));
+            std::memcpy(reference.data(), pixels, reference.size() * sizeof(DWORD));
+        }
+        ClearDestination();
+        tkd2dcanvas::GdiAntialias tiled;
+        tiled.SetScale(4);
+        tiled.FillPolygon(dc, moved, 64, Color(32, 96, 160));
+        for (int y = 0; y < kHeight; ++y) {
+            for (int x = 0; x < kWidth; ++x) {
+                if (pixels[y * kWidth + x] != reference[y * kWidth + x]) ++worst;
+            }
+        }
+    }
+    std::printf("   at 20 sub-pixel offsets: %d pixels differ\n", worst);
+    Check(worst == 0, "tiling is exact at every sub-pixel offset");
+}
+
 }  // namespace
 
 int main() {
@@ -206,6 +289,7 @@ int main() {
     TestClipSafety();
     TestCoverageQuantization();
     TestSharedEdgeSeam();
+    TestTilingIsInvisible();
 
     SelectObject(dc, bitmap);
     DeleteObject(bitmap);

@@ -208,7 +208,17 @@ bool ApplyCanvasOptions(CanvasWidget& widget, int mask) {
     }
 
     widget.UpdateGeometry();
-    widget.Invalidate();
+
+    // Only the options that can change a pixel trigger a repaint.  The
+    // scroll region is just metadata for the scroll commands - it does not
+    // change anything that is drawn.  Repainting here would turn every
+    // scrollregion change into a full canvas repaint, and applications that
+    // adjust the scroll region on every <Configure> (TinUI's scroll
+    // containers do) would then repaint the canvas over and over - which
+    // shows up as a steadily growing memory usage.
+    if (mask & (kCanvasOptGeometry | kCanvasOptColour | kCanvasOptOther)) {
+        widget.Invalidate();
+    }
     if (!ok) {
         Tcl_SetObjResult(widget.interp, Tcl_NewStringObj(scrollRegionError.c_str(), -1));
         Tcl_SetErrorCode(widget.interp, "TK", "CANVAS", "SCROLL_REGION", nullptr);

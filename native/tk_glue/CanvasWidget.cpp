@@ -20,6 +20,18 @@ namespace tkd2dcanvas {
 
 namespace {
 
+// Repositions the embedded windows (the canvas' "window" items) from an
+// idle callback: the windows are moved once per event cycle, with the
+// final position.  See CanvasWidget::RequestWindowItemSync.
+void WindowItemSyncIdleProc(ClientData clientData) {
+    auto* widget = static_cast<CanvasWidget*>(clientData);
+    if (!widget) return;
+    widget->windowItemSyncPending = false;
+    widget->BeginEvent();
+    SyncWindowItems(*widget);
+    widget->EndEvent();
+}
+
 // Translates a pointer event into the "pick event" Tk uses for the current
 // item: motion and button-release events are reported to item handlers as
 // EnterNotify (Tk: the pickEvent in PickCurrentItem).
@@ -174,6 +186,7 @@ void CanvasWidget::FinalizeDestroy() {
 
     // A destroyed widget must not be touched by a pending idle callback.
     CancelScrollbarUpdate(*this);
+    CancelWindowItemSync();
 
     ShutdownWindowItems(*this);
 
@@ -305,6 +318,18 @@ void CanvasWidget::Invalidate(const BBox& box) {
     surface.Invalidate(local);
 }
 
+void CanvasWidget::RequestWindowItemSync() {
+    if (windowItemSyncPending || !interp) return;
+    windowItemSyncPending = true;
+    Tcl_DoWhenIdle(&WindowItemSyncIdleProc, this);
+}
+
+void CanvasWidget::CancelWindowItemSync() {
+    if (!windowItemSyncPending) return;
+    windowItemSyncPending = false;
+    Tcl_CancelIdleCall(&WindowItemSyncIdleProc, this);
+}
+
 void CanvasWidget::PickCurrentItem(int x, int y, XEvent* eventPtr) {
     const CanvasView& view = model.View();
     const XEvent pickEvent = eventPtr ? MakePickEvent(eventPtr) : XEvent{};
@@ -417,6 +442,22 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
     if (!dc || !mapped) return;
     if (pixelWidth <= 0 || pixelHeight <= 0) return;
 
+    // The embedded Tk windows (the canvas' "window" items) have to follow
+    // the content when the canvas scrolls.  They are repositioned from an
+    // idle callback, so that they are moved exactly once per event cycle,
+    // with the final position - the same thing Tk's canvas does (it
+    // positions its window items while redrawing, and the redraw happens
+    // from an idle handler).
+    //
+    // Repositioning them eagerly on every scroll step would move them
+    // through every intermediate position, and every move makes Tk send a
+    // <Configure> event (Tk_MoveResizeWindow always notifies, even when
+    // only the position changed).  Applications that do work in their
+    // <Configure> handler would then pay for every intermediate position -
+    // and, if they schedule recurring work there, pile up timers and
+    // memory.
+    RequestWindowItemSync();
+
     // Only paint the parts of the damage that touch the widget.
     const RECT bounds{0, 0, pixelWidth, pixelHeight};
     std::vector<RECT> rects;
@@ -476,7 +517,6 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
     auto fallbackFullRepaint = [this]() {
         Invalidate();
         UpdateWindow(hwnd);
-        SyncWindowItems(*this);
     };
 
     const double roundedX = std::round(deltaX);
@@ -547,7 +587,6 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
         const BBox box{rect.left + oldX, rect.top + oldY, rect.right - 1 + oldX, rect.bottom - 1 + oldY};
         Invalidate(box);
     }
-    SyncWindowItems(*this);
 
     UpdateWindow(hwnd);
 }

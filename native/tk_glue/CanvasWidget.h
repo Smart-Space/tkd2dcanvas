@@ -91,6 +91,8 @@ struct CanvasWidget {
     int eventDepth = 0;
     bool destroyPending = false;
     bool scrollbarsPending = false;
+    // True while a repositioning of the embedded windows is queued.
+    bool windowItemSyncPending = false;
     WindowItemBindings windowItemBindings;
     int scanMarkX = 0;
     int scanMarkY = 0;
@@ -118,6 +120,16 @@ struct CanvasWidget {
     void Invalidate();
     // Same, limited to a canvas-unit rectangle
     void Invalidate(const BBox& box);
+
+    // Queues a repositioning of the embedded windows (the canvas' "window"
+    // items) from an idle callback.  The windows are then moved once per
+    // event cycle, with the final position - like Tk's canvas, which
+    // positions its window items while redrawing.
+    void RequestWindowItemSync();
+
+    // Cancels a queued repositioning of the embedded windows (the widget
+    // must not be touched by a pending idle callback after it is gone).
+    void CancelWindowItemSync();
 
     // Draws the widget with Direct2D into `dc` (a DC of the widget window).
     // `damaged` are the rectangles that have to be repainted (window

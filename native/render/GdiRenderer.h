@@ -87,6 +87,12 @@ private:
 
     int clipDepth_ = 0;
 
+    // Scratch buffer for the device points of a path.  It is reused between
+    // shapes: allocating it per shape would make the C runtime heap grow
+    // (it never gives memory back), which shows up as a slowly growing
+    // memory usage while scrolling.
+    std::vector<AaPoint> devicePoints_;
+
     std::unique_ptr<GdiAntialias> antialias_;
 };
 

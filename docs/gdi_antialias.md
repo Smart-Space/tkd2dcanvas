@@ -287,9 +287,23 @@ Python 包加载的是 `python/tkd2dcanvas/tcl/tkd2dcanvas/` 下那一份，
 
 ### 8.5 内存
 
-抗锯齿引擎的离屏缓冲只增不减：画过一次大图形之后，缓冲会一直保持那么大。
-每个画布控件都有自己的缓冲，所以这里做了限制——超过保留上限（4M 采样点 /
-1M 像素）的缓冲在画完之后立刻释放。实测滚动时 GDI 句柄数与内存占用都是恒定的。
+抗锯齿引擎的离屏缓冲曾经是**按整个图元的大小**分配的：一个 528×528 的图元在
+4 倍超采样下要一块 17 MB 的暂存缓冲。缓冲只增不减，于是"滚动到更大的图元"
+就会让画布的内存涨上去，而且**再也不降回来**——这正是原生画布内存恒定、
+抗锯齿画布内存越滚越大的原因（见 8.11）。
+
+现在的做法是两块：
+
+1. **只渲染看得见的部分**：引擎先取目标 DC 的裁剪框，把图元的包围盒和它求
+   交集，只对交集做超采样。滚动时只有新暴露的条带需要重画，交集就只有条带
+   那么大。
+2. **分块（tile）渲染**：剩下的可见区域被切成不超过预算的方块，一块一块地
+   超采样、滤波、合成。离屏缓冲的大小因此只取决于预算（默认 1 MB），
+   **不再随图元变大**。
+
+分块是无损的：块边界落在整数像素上，采样点仍在同一张全局采样网格上，
+所以同一个图元无论被切成几块，画出来的像素逐字节相同
+（`tests/gdi_aa/aa_edge_probe.cpp` 的第 4 条守住这条性质）。
 
 ### 8.6 与脏矩形重绘的关系（"画面割裂"是怎么来的）
 
@@ -359,10 +373,19 @@ source-over 合成。共享边上的两个半覆盖像素各叠一次，背景�
 GDI 后端每个图元都要"超采样 → 降采样 → AlphaBlend"，比 D2D 慢。
 实测（200 个 24×24 的椭圆，600×400 画布）：
 
-| 场景 | D2D | GDI（优化前） | GDI（优化后） |
-| --- | --- | --- | --- |
-| 滚动一帧 | 1.45 ms | 0.48 ms | **0.10 ms** |
-| 整屏重绘 | 1.21 ms | 4.24 ms | **0.16 ms** |
+| 场景 | D2D | GDI |
+| --- | --- | --- |
+| 滚动一帧 | 1.3 ms | **0.09 ms** |
+| 整屏重绘 | 6.3 ms | **18.1 ms** |
+| 整屏重绘的固定开销（空画布） | 1.4 ms | 0.2 ms |
+| 每个图元的边际成本 | 25 µs | **90 µs** |
+
+> 注意：`tests/gdi_aa/bench_repaint.py` 里的"整屏重绘"测的是 `configure`
+> 本身，WM_PAINT 还没被处理，所以那个 0.16 ms 是假的。真正的测量见
+> `tests/gdi_aa/bench_repaint2.py`（上表就是它测出来的）。
+>
+> 滚动一帧 GDI 反而比 D2D 快：滚动走的是"移位 + 只重画新暴露的条带"，
+> D2D 后端的每帧固定开销（1.4 ms）在这里占了绝大部分。
 
 > **一个重要的优化**：画布重绘时**背景矩形也走抗锯齿引擎**
 > （`Win32Surface::Paint` 用 `fillPath` 填背景）。但背景是轴对齐、
@@ -389,14 +412,128 @@ GDI 后端每个图元都要"超采样 → 降采样 → AlphaBlend"，比 D2D �
   约 20% 来自文字区（x 170–300），其余是图形区——这部分是覆盖率量化
   和逐图元接缝造成的。
 * 虚线/stipple 不随超采样放大；超大图元回退到普通 GDI（无抗锯齿）。
+* **离屏缓冲是每个画布控件一份**（每个控件有自己的渲染器）。分块之后
+  每份最多 1 MB（默认预算），但控件多的时候总量仍然是"控件数 × 1 MB"。
+  真要再压，就得把缓冲改成进程级共享（像 Tk 侧的 `tkWinAA.c` 那样用
+  线程局部状态），或者改成解析覆盖率（D2D 的做法，不用暂存缓冲）。
 
-### 8.10 验证
+### 8.10 滚动时的内存增长：根因与修法
+
+**现象**（TinUI 演示，67 个画布，13 个可滚动；进程私有提交量）：
+
+| | 原生画布（Tk 自带 GDI） | 抗锯齿画布（改之前） | 抗锯齿画布（改之后） |
+| --- | --- | --- | --- |
+| 初始 | 29.8 MB | 50.3 MB | 34.1 MB |
+| 滚动 12 步之后 | 29.8 MB（**不变**） | 59.4 MB（**+9.1 MB**） | 35.8 MB（**+1.7 MB**） |
+
+**根因**：抗锯齿引擎的暂存缓冲是按**整个图元**的包围盒分配的，而且只增不减。
+滚动时新的图元进入视口，只要遇到一个比之前大的图元，缓冲就涨到那个图元
+的尺寸，并且再也不降回去。TinUI 演示里最大的图元是 528×528，在 4 倍超采样下
+就是 `528 × 528 × 16 × 4 = 17 MB`——一块为了画一个图元而存在的离屏位图。
+
+原生画布没有这个问题：GDI 直接画到后备缓冲上，没有暂存缓冲。
+
+**修法**（`native/render/GdiAntialias.cpp`）：
+
+1. **按裁剪框裁剪**：引擎取目标 DC 的裁剪框（`GetClipBox`），只对
+   "图元包围盒 ∩ 裁剪框"做超采样。滚动时只有新暴露的条带需要重画，
+   需要超采样的就只有条带那么大。
+2. **分块渲染**：可见区域被切成不超过预算的方块（默认预算 1 MB，
+   4 倍超采样下是 108×108 像素），一块一块超采样、滤波、合成。
+   缓冲的大小因此只取决于预算，**不再随图元变大**。
+
+两条都**不改变画面**：块边界落在整数像素上，采样点仍在同一张全局采样网格上，
+所以同一个图元被切成几块画出来的像素逐字节相同
+（`aa_edge_probe.cpp` 第 4 条：0 / 40000 像素不同）。
+
+**效果**：
+
+| 场景 | 改之前 | 改之后 |
+| --- | --- | --- |
+| TinUI 演示滚动 12 步 | +9.1 MB | **+1.7 MB** |
+| 合成场景：600×400 的大椭圆滚进视口 | +16.9 MB | **+0.8 MB** |
+| 整屏重绘耗时（200 个小图元 + 1 个大图元） | 26.6 ms | **25.8 ms** |
+| 与 D2D 的逐像素差异（普通 / 滚动场景） | 3114 / 14225 | **3114 / 14225**（未变） |
+
+最后一行是关键：分块和裁剪都是**无损**的——`compare_backends.py` 与
+`compare_scrolled.py` 的差异数字与改之前完全一样。
+
+**Tk 侧的引擎**（`third_party/tcltk-src/tk/win/tkWinAA.c`，原生 Tk 画布的
+`-antialias 1`）有同样的问题：它的暂存缓冲同样只增不减，而且没有任何
+上限。修法可以照搬（按裁剪框裁剪 + 分块 + 预算上限）。
+
+### 8.11 同一片区域来回滚动，内存还会涨吗？
+
+**抗锯齿引擎本身不会。** 实测：
+
+| 场景 | 来回滚的趟数 | 私有提交的变化 |
+| --- | --- | --- |
+| 仓库后端（`-renderer gdi`），纯画布场景 | 60 | **16552 KB → 16552 KB（一个字节没变）** |
+| Tk 侧引擎（`-antialias 1`，打补丁的 wish86t.exe） | 40 | **8852 KB → 8852 KB** |
+| TinUI 演示，仓库的 d2d 后端 | 80 | +27 MB（**跳变**，见下） |
+
+但 **TinUI 演示里，仓库的画布控件（gdi 和 d2d 都一样）每滚一趟都会涨
+十几 KB 到一百 KB**，而 Tk 自带的画布完全不动。追下去是这样：
+
+1. 仓库的画布在滚动时会**移动内嵌的 Tk 子窗口**（canvas 的 window item）。
+   `Tk_MoveResizeWindow` 一定会发一个 `<Configure>` 事件——哪怕只是位置变了、
+   尺寸没变。实测：仓库的画布**每趟 3 个 `<Configure>`**，Tk 自带的画布
+   第 1 趟 3 个、之后 0 个。
+2. TinUI 的滚动容器把 `<Configure>` 接到了 `update__()` 上，而
+   `update__()` 每跑一次就**再排一条永久的 `after` 定时器链**
+   （`self.after(self.update_time, self.update__)`，旧的那条不取消）。
+   每多一个 `<Configure>` 就多一条链，链条又会各自触发 `update__()`——
+   于是链条越滚越多。
+3. 每条链都会重画一次画布 → 渲染器每次重画都要分配/释放 →
+   进程的堆（CRT 堆、GDI 堆）只涨不跌 → 内存稳步上涨。
+   d2d 后端还会因为渲染目标的延迟释放出现 +27 MB 的跳变。
+
+也就是说：**这部分增长跟抗锯齿无关**（d2d 后端同样有，甚至更严重），
+是"画布控件 + 应用层"的交互。
+
+**仓库侧已经改掉的三处**（都在 `native/tk_glue/` 与 `native/render/`）：
+
+1. **不再为"没变的位置"移动内嵌窗口**
+   （`CanvasTkWindowItem.cpp` 的 `SyncWindowItems`）。Tk 的画布只在位置或
+   尺寸**真的变了**的时候才移动内嵌窗口（`tkCanvWind.c` 的
+   `DisplayWinItem`），而 `Tk_MoveResizeWindow` **一定**会发一个
+   `<Configure>`（哪怕只是位置变了）。仓库原来每次同步都无条件移动 →
+   每次滚动都白发一串 `<Configure>`。
+2. **内嵌窗口改成每个事件循环只挪一次**（`CanvasWidget.cpp` 的
+   `RequestWindowItemSync`）。滚动命令里同步挪，等于把窗口挪到每一个
+   中间位置；Tk 是等重画（idle）时按**最终位置**挪一次。仓库现在也用
+   idle 回调来做，一轮事件只挪一次。
+3. **滚动区这类"不改变像素"的选项不再触发整屏重画**
+   （`CanvasOptions.cpp`）：`-scrollregion` / `-xscrollcommand` 之类的
+   改动以前每次都重画一遍整块画布。
+
+另外，抗锯齿引擎也不再**每个图元**新建一支画笔和一个画刷
+（`GdiAntialias.cpp`）：画刷只有一种颜色（掩膜色），画笔按
+（宽度, 端帽, 接头）缓存。GDI 对象的创建/销毁很频繁时，GDI 自己的句柄表
+会跟着涨。
+
+**效果**（TinUI 演示，同一片区域来回滚 40 趟，进程私有提交）：
+
+| 后端 | 第 1 趟 | 第 40 趟 | 增长 |
+| --- | --- | --- | --- |
+| 原生画布（Tk 自带 GDI） | 30860 KB | 30860 KB | **0** |
+| 抗锯齿画布（`-renderer gdi`） | 36072 KB | 36888 KB | **+816 KB**（约 20 KB/趟） |
+| 抗锯齿画布（`-renderer d2d`） | 70728 KB | 101448 KB | **+30.7 MB**（另有跳变） |
+
+改之前，同样这个场景是 **12 趟就涨 9.1 MB**（而且越涨越快）。现在
+`<Configure>` 的次数和 Tk 自带的画布**完全一样**（第 1 趟 4 个，之后每趟
+0 个），剩下的 20 KB/趟是渲染本身的堆增长，原生画布也有（12 KB/趟）。
+
+> d2d 后端还有自己的增长（渲染目标的资源释放是延迟的），那是另一条线，
+> 与抗锯齿无关。
+
+### 8.12 验证
 
 ```powershell
 # 抗锯齿引擎的单元测试（不需要窗口）
 powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_render_test.ps1 -Run
 
-# 边缘特性探针（裁剪安全性 / 覆盖率量化 / 相邻图元接缝）
+# 边缘特性探针（裁剪安全性 / 覆盖率量化 / 相邻图元接缝 / 分块无损）
 powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_edge_probe.ps1 -Run
 
 # 像素对齐矩形：抗锯齿引擎 vs FillRect 的等价性（快路径的正确性依据）
@@ -406,8 +543,18 @@ powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_rect_equiv.ps1 -R
 python tests\gdi_aa\compare_backends.py
 python tests\gdi_aa\compare_scrolled.py
 
-# 重绘耗时对比
-python tests\gdi_aa\bench_repaint.py
+# 重绘耗时对比（bench_repaint2 才真的测到了 WM_PAINT）
+python tests\gdi_aa\bench_repaint2.py
+python tests\gdi_aa\bench_repaint2.py --big
+
+# 内存占用（滚动过程中）
+python tests\gdi_aa\bench_tinui_memory.py gdi     # TinUI 演示，滚动 12 步
+python tests\gdi_aa\bench_tinui_memory.py native  # 同一场景，原生画布
+python tests\gdi_aa\bench_growth.py gdi           # 大图元滚进视口
+python tests\gdi_aa\bench_memory.py               # d2d / gdi 两个后端对照
+python tests\gdi_aa\bench_backforth.py            # 同一片区域来回滚
+python tests\gdi_aa\bench_tinui_backforth.py      # TinUI 里来回滚 + <Configure> 计数
+python tests\gdi_aa\bench_tk_aa_memory.py         # Tk 侧抗锯齿引擎（wish86t）
 
 # TinUI 演示（三个后端并排）
 python tests\tinui\run_tinui.py --backend gdi --capture out.png
@@ -424,8 +571,13 @@ python tests\tinui\run_tinui.py --backend gdi --capture out.png
 1. clip safety: 0 of 26000 visible pixels differ
 2. coverage quantization: 15 gray levels at scale 4, 41 at scale 8 (D2D: analytic, 256)
 3. shared edge: one shape FF8080FF, two shapes FF4040FF (white = FFFFFFFF)
+4. tiling: 0 of 40000 pixels differ (tile 108 px)
+   buffers 868352 bytes, budget 1048576 bytes
 aa_edge_probe: all checks passed
 ```
+
+第 4 条是 8.10 节分块渲染的回归测试：同一个图元，用不同的块大小渲染，
+像素必须逐字节相同，而且离屏缓冲必须待在预算之内。
 
 `tests/gdi_aa/aa_rect_equiv.cpp` 守住 8.8 节快路径的正确性 ——
 像素对齐的矩形，抗锯齿引擎和 `FillRect` 必须画出**完全相同的 RGB**

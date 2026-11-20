@@ -155,7 +155,7 @@ void GdiRenderer::drawLine(const Path& path, const PenStyle& pen) {
             ? aligned
             : path;
 
-    std::vector<AaPoint> points;
+    std::vector<AaPoint>& points = devicePoints_;
     if (!BuildDevicePoints(effective, points)) return;
 
     if (!antialias_->StrokePolyline(dc_, points.data(),
@@ -250,7 +250,7 @@ HPEN GdiRenderer::CreateGdiPen(const PenStyle& pen, COLORREF color,
 void GdiRenderer::fillPath(const Path& path, const BrushStyle& brush) {
     if (!dc_ || path.Size() < 3) return;
 
-    std::vector<AaPoint> points;
+    std::vector<AaPoint>& points = devicePoints_;
     if (!BuildDevicePoints(path, points)) return;
 
     // Fast path: an axis aligned rectangle whose edges fall on whole pixels

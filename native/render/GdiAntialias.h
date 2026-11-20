@@ -49,6 +49,21 @@ public:
     static constexpr int kMaxDimension = 4096;
     static constexpr long long kMaxSamples = 16LL * 1024 * 1024;
 
+    // Memory budget for the off-screen buffers of one shape.  A shape is
+    // rendered in tiles of at most this size, so the buffers never grow
+    // beyond the budget - no matter how big the shape is.  (Before the
+    // tiling the buffer was sized after the whole shape: a 528x528 shape
+    // needed 17 MB at scale 4, and scrolling to a bigger shape made the
+    // canvas grow - and stay - bigger.)
+    static constexpr long long kScratchBudgetBytes = 1LL * 1024 * 1024;
+
+    // How many tiles a single shape may be split into.  Every tile makes
+    // GDI rasterize the shape again, so the count is limited: a shape that
+    // would need more tiles is drawn with plain GDI (without anti-aliasing)
+    // instead.  The limit is generous - GDI clips the rasterization to the
+    // tile, so the extra work is linear in the area of the shape.
+    static constexpr int kMaxTiles = 256;
+
     // How much memory the off-screen buffers may keep between two shapes.
     // A single big shape needs a big buffer, but there is no reason to hold
     // on to it: the buffers would otherwise grow to the biggest shape that
@@ -66,6 +81,22 @@ public:
     void SetScale(int scale);
     int Scale() const { return scale_; }
 
+    // Side length of the tile a shape is rendered in (device pixels).  It
+    // follows from the memory budget and the supersampling factor.
+    int TileSize() const;
+
+    // Size of the buffers a tile of the given size needs (bytes).
+    long long BufferBytes(int tile) const;
+
+    // Overrides the memory budget for the off-screen buffers.  Zero means
+    // "the default".  The tests use this to render the same shape with
+    // different tile sizes - the pixels must not change.
+    void SetScratchBudget(long long bytes);
+
+    // Size of the off-screen buffers the engine currently holds (bytes).
+    // This is what the memory of a canvas widget is made of.
+    long long ScratchBytes() const;
+
     // Fills the closed polygon with `color`, with smooth edges.
     bool FillPolygon(HDC dc, const AaPoint* points, int count, const Color& color);
 
@@ -82,6 +113,19 @@ private:
     bool RenderShape(HDC dc, const AaPoint* points, int count, bool closed,
                      const PenStyle* pen, const BrushStyle* brush);
 
+    // Renders the part of the shape that falls into the rectangle
+    // (left, top, width, height) - one tile of the shape.  The tile is
+    // supersampled on its own, so the scratch buffer only has to hold the
+    // tile and not the whole shape.
+    //
+    // `shapeScaled` holds the vertices of the shape in samples, relative to
+    // the shape's bounding box (shapeLeft, shapeTop); the tile's origin
+    // (left, top) is relative to the same box.
+    bool RenderTile(HDC dc, const AaPoint* points, const POINT* shapeScaled,
+                    int count, bool closed, const PenStyle* pen,
+                    const BrushStyle* brush, int shapeLeft, int shapeTop,
+                    int left, int top, int width, int height);
+
     // Makes sure the scratch buffer can hold a shape of the given device
     // size (already multiplied by the scale factor).
     bool EnsureScratch(int width, int height);
@@ -91,7 +135,33 @@ private:
     void TrimBuffers();
     void ReleaseBuffers();
 
+    // The pen used to stroke a shape in the scratch buffer.  Pens are
+    // cached: creating one per shape would churn GDI objects, and GDI's
+    // handle table grows with the churn.
+    HPEN MaskPen(int widthHi, DWORD capStyle, DWORD joinStyle);
+
     int scale_ = kDefaultScale;
+    long long scratchBudget_ = kScratchBudgetBytes;
+
+    // The brush used to fill a shape in the scratch buffer.  It always has
+    // the mask color, so a single brush serves every shape.
+    HBRUSH maskBrush_ = nullptr;
+
+    // Cached pens for the scratch buffer.
+    struct CachedPen {
+        int widthHi;
+        DWORD capStyle;
+        DWORD joinStyle;
+        HPEN pen;
+    };
+    std::vector<CachedPen> penCache_;
+
+    // Scratch buffers for the point lists.  They are reused between shapes:
+    // allocating them per shape would make the C runtime heap grow (it
+    // never gives memory back), which shows up as a slowly growing memory
+    // usage while scrolling.
+    std::vector<POINT> shapeScaled_;
+    std::vector<POINT> tileScaled_;
 
     // Off-screen buffer the shape is drawn into (scale times the device
     // resolution), 32 bit, top-down.

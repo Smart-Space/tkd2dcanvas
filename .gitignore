@@ -36,6 +36,7 @@ Thumbs.db
 /tests/gdi_aa/build/
 /tests/gdi_aa/*.log
 /tests/gdi_aa/*.ppm
+/tests/gdi_aa/*.png
 
 .ignore
 tests/tinui/

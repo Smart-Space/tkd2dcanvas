@@ -326,7 +326,17 @@ void SyncWindowItems(CanvasWidget& widget) {
             if (b.mapped && b.lastRectValid) {
                 InvalidateWidgetRect(widget, b);
             }
-            Tk_MoveResizeWindow(b.tkwin, x, y, w, h);
+            // Only move the window when its position or size really changed.
+            // This is what Tk's canvas does (DisplayWinItem in
+            // tkCanvWind.c): Tk_MoveResizeWindow always sends a <Configure>
+            // event, even when only the position changed - so a needless
+            // move is a needless event for the application.  A window that
+            // was unmapped (it scrolled out of the view) and comes back to
+            // the same place is only remapped, not moved.
+            if (x != Tk_X(b.tkwin) || y != Tk_Y(b.tkwin) ||
+                w != Tk_Width(b.tkwin) || h != Tk_Height(b.tkwin)) {
+                Tk_MoveResizeWindow(b.tkwin, x, y, w, h);
+            }
             Tk_MapWindow(b.tkwin);
         } else {
             // The child is a sibling (child of an ancestor): Tk keeps it in
