@@ -472,8 +472,8 @@ GDI 后端每个图元都要"超采样 → 降采样 → AlphaBlend"，比 D2D �
 | Tk 侧引擎（`-antialias 1`，打补丁的 wish86t.exe） | 40 | **8852 KB → 8852 KB** |
 | TinUI 演示，仓库的 d2d 后端 | 80 | +27 MB（**跳变**，见下） |
 
-但 **TinUI 演示里，仓库的画布控件（gdi 和 d2d 都一样）每滚一趟都会涨
-十几 KB 到一百 KB**，而 Tk 自带的画布完全不动。追下去是这样：
+但 **TinUI 演示里，仓库的画布控件（gdi 和 d2d 都一样）确实比 Tk 自带的
+画布多占内存**。追下去是这样：
 
 1. 仓库的画布在滚动时会**移动内嵌的 Tk 子窗口**（canvas 的 window item）。
    `Tk_MoveResizeWindow` 一定会发一个 `<Configure>` 事件——哪怕只是位置变了、
@@ -516,13 +516,39 @@ GDI 后端每个图元都要"超采样 → 降采样 → AlphaBlend"，比 D2D �
 
 | 后端 | 第 1 趟 | 第 40 趟 | 增长 |
 | --- | --- | --- | --- |
-| 原生画布（Tk 自带 GDI） | 30860 KB | 30860 KB | **0** |
-| 抗锯齿画布（`-renderer gdi`） | 36072 KB | 36888 KB | **+816 KB**（约 20 KB/趟） |
+| 原生画布（Tk 自带 GDI） | 29840 KB | 29840 KB | **0** |
+| 抗锯齿画布（`-renderer gdi`） | 36368 KB | 36636 KB | **+268 KB（一次性）** |
 | 抗锯齿画布（`-renderer d2d`） | 70728 KB | 101448 KB | **+30.7 MB**（另有跳变） |
 
 改之前，同样这个场景是 **12 趟就涨 9.1 MB**（而且越涨越快）。现在
 `<Configure>` 的次数和 Tk 自带的画布**完全一样**（第 1 趟 4 个，之后每趟
-0 个），剩下的 20 KB/趟是渲染本身的堆增长，原生画布也有（12 KB/趟）。
+0 个）。
+
+剩下的这 **268 KB 也不是"每趟涨"**：把它按趟打印出来，曲线是**阶梯状**的
+——前 20 趟一个字节没变，第 21 趟一次性跳 +268 KB（进程堆换了一块新的
+segment），之后 19 趟又是一个字节没变。也就是说：**既没有泄漏，也没有
+"每趟 20 KB"**，只有偶尔一次性的堆增长。
+
+> 早先报出来的"20 KB/趟"有两个来源，值得说清楚：
+>
+> * **测量脚本自己**：老的 bench 每趟都会 `find_all()` 把 804 个图元取成
+>   Python 对象，还要问一次 `info commands`——这些临时对象才是当时看到的
+>   "每趟增长"的主要来源（把它们去掉，曲线就平了，见
+>   `tests/gdi_aa/diag_growth.py` 与 `bench_tinui_backforth.py` 的对比）。
+> * **真实的重画 churn**：仓库的画布每重画一次都会重新构造每个图元的
+>   路径和显示列表（一次重画约 50 KB 的分配）。这些内存用完就还给分配器，
+>   但分配器不还给操作系统，所以进程堆的提交量偶尔会跳一格。Tk 自带的
+>   画布把路径存在自己的 display list 里，重画时不再重新构造，所以它
+>   一个字节都不动。
+>
+> 用分配探针量过（`operator new` 计数）：
+>
+> * 仓库的模块在进程退出时**活跃字节为 0**（峰值只有 130 KB）→ 没有泄漏；
+> * 抗锯齿引擎单独跑 **12000 帧 × 30 个抗锯齿椭圆**（填充 + 描边），
+>   私有提交**一个字节都没涨**（只有开头一次性 +284 KB 的离屏缓冲）
+>   → 引擎本身也没有增长；
+> * 增长只出现在"画布控件 + Tk + 应用"三者凑在一起的时候 → 是宿主进程的
+>   分配器行为，不是仓库代码里的泄漏。
 
 > d2d 后端还有自己的增长（渲染目标的资源释放是延迟的），那是另一条线，
 > 与抗锯齿无关。
@@ -555,6 +581,22 @@ python tests\gdi_aa\bench_memory.py               # d2d / gdi 两个后端对照
 python tests\gdi_aa\bench_backforth.py            # 同一片区域来回滚
 python tests\gdi_aa\bench_tinui_backforth.py      # TinUI 里来回滚 + <Configure> 计数
 python tests\gdi_aa\bench_tk_aa_memory.py         # Tk 侧抗锯齿引擎（wish86t）
+
+# 增长的定位（把"私有提交"拆成堆/分节/GDI 对象/句柄/Python 对象）
+python tests\gdi_aa\diag_growth.py --backend gdi --cycles 40      # 干净的曲线
+python tests\gdi_aa\diag_growth.py --backend native --cycles 40
+python tests\gdi_aa\diag_memory_map.py --backend gdi --cycles 40  # 按内存类型拆
+python tests\gdi_aa\diag_minimal_scroll.py --backend gdi         # 最小场景复现
+python tests\gdi_aa\diag_minimal_scroll.py --backend gdi --items 200 --shapes oval \
+    --optloop 400 --opt highlightthickness                       # 只重画，不滚动
+powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_mem_probe.ps1 -Run
+#   抗锯齿引擎单独跑 12000 帧：私有提交一个字节都不涨
+
+# 分配器的行为（说明"没有泄漏，但堆的提交量会跳"）
+python tests\gdi_aa\diag_heap_reuse.py --rounds 400 --blocks 100
+python tests\gdi_aa\diag_gdi_churn.py --rounds 400 --perround 200
+python tests\gdi_aa\diag_gdi_path_churn.py --rounds 400 --perround 100
+python tests\gdi_aa\diag_gdi_fill_churn.py --rounds 400 --perround 30
 
 # TinUI 演示（三个后端并排）
 python tests\tinui\run_tinui.py --backend gdi --capture out.png
