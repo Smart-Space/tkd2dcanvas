@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "D2DTargetKind.h"
 #include "SurfaceRenderer.h"
 
 struct ID2D1PathGeometry;
@@ -14,7 +15,10 @@ class D2DRendererImpl;
 
 class D2DRenderer final : public SurfaceRenderer {
 public:
-    D2DRenderer();
+    // `kind` decides which rasterizer is used (see D2DTargetKind.h).  The
+    // render target itself is shared by the whole process (see
+    // D2DTargetPool.h).
+    explicit D2DRenderer(D2DTargetKind kind = D2DTargetKind::Hardware);
     ~D2DRenderer() override;
 
     D2DRenderer(const D2DRenderer&) = delete;
@@ -45,6 +49,9 @@ public:
 private:
     void EnsureBrush();
     void BuildGeometry(const Path& path, ID2D1PathGeometry* geometry) const;
+
+    // The pool (and with it the render target) this renderer draws into.
+    D2DTargetKind targetKind_ = D2DTargetKind::Hardware;
 
     // Scratch buffers for the half pixel stroke alignment (see
     // StrokeAlign.h).  Reused, so that drawing a stroke does not allocate.

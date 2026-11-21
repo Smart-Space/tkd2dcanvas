@@ -548,8 +548,6 @@ segment），之后 19 趟又是一个字节没变。也就是说：**既没有�
 > * 增长只出现在"画布控件 + Tk + 应用"三者凑在一起的时候 → 是宿主进程的
 >   分配器行为，不是仓库代码里的泄漏。
 
-> d2d 后端还有自己的增长（渲染目标的资源释放是延迟的），那是另一条线，
-> 与抗锯齿无关。
 
 ### 8.12 验证
 
@@ -568,6 +566,11 @@ powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_shared_probe.ps1 
 
 # 渲染目标是进程级共享的（D2D 后端）
 powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_d2d_shared_probe.ps1 -Run
+
+# D2D 后端的内存增长到底来自哪里（不需要窗口的受控实验）
+powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_d2d_alloc_probe.ps1 -Run -Mode path
+python tests\gdi_aa\diag_d2d_growth.py --scene tinui --backend d2d --hide text --cycles 40
+python tests\gdi_aa\diag_d2d_growth.py --scene min --backend d2d --kind text-cjk --items 3000
 
 # 两个后端逐像素对比（普通场景 / 滚动后的场景）
 python tests\gdi_aa\compare_backends.py

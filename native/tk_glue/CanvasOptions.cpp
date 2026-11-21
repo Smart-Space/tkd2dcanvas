@@ -189,11 +189,19 @@ bool ApplyCanvasOptions(CanvasWidget& widget, int mask) {
         const char* name = widget.rendererObj ? Tcl_GetString(widget.rendererObj) : "d2d";
         if (strcmp(name, "gdi") == 0) {
             widget.surface.SetRendererKind(RendererKind::Gdi);
+        } else if (strcmp(name, "d2d-software") == 0 ||
+                   strcmp(name, "d2dsoftware") == 0 ||
+                   strcmp(name, "software") == 0) {
+            // Direct2D on the CPU: the canvas draws into a memory DC, so
+            // the GPU would have to copy every frame back into it - and the
+            // D3D device keeps those copies in a cache that grows in big
+            // steps (see docs/gdi_antialias.md 8.14).
+            widget.surface.SetRendererKind(RendererKind::Direct2DSoftware);
         } else if (strcmp(name, "d2d") == 0 || strcmp(name, "direct2d") == 0) {
             widget.surface.SetRendererKind(RendererKind::Direct2D);
         } else {
             Tcl_SetObjResult(widget.interp, Tcl_ObjPrintf(
-                "bad renderer \"%s\": must be d2d or gdi", name));
+                "bad renderer \"%s\": must be d2d, d2d-software or gdi", name));
             Tcl_SetErrorCode(widget.interp, "TK", "CANVAS", "RENDERER", nullptr);
             return false;
         }

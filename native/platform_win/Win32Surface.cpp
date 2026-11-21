@@ -14,9 +14,12 @@ void Win32Surface::AttachToWindow(HWND hwnd) {
         case RendererKind::Gdi:
             renderer_ = std::make_unique<tkd2dcanvas::GdiRenderer>();
             break;
+        case RendererKind::Direct2DSoftware:
+            renderer_ = std::make_unique<D2DRenderer>(D2DTargetKind::Software);
+            break;
         case RendererKind::Direct2D:
         default:
-            renderer_ = std::make_unique<D2DRenderer>();
+            renderer_ = std::make_unique<D2DRenderer>(D2DTargetKind::Hardware);
             break;
     }
     SetAntiAliasScale(aaScale_);

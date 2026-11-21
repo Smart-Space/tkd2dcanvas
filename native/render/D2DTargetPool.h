@@ -23,15 +23,22 @@
 #include <windows.h>
 #include <wrl/client.h>
 
+#include "D2DTargetKind.h"
+
 class D2DTargetPool {
 public:
-    static D2DTargetPool& Instance();
+    // One pool per rasterizer: the hardware and the software target are
+    // different objects, so widgets that ask for different ones can live
+    // side by side.
+    static D2DTargetPool& Instance(D2DTargetKind kind);
 
     // The render target may only be used while the guard is held: two
     // widgets must never draw into it at the same time.
     class Guard {
     public:
-        Guard() : pool_(&Instance()) { EnterCriticalSection(&pool_->lock_); }
+        explicit Guard(D2DTargetPool& pool) : pool_(&pool) {
+            EnterCriticalSection(&pool_->lock_);
+        }
         ~Guard() { LeaveCriticalSection(&pool_->lock_); }
 
         Guard(const Guard&) = delete;
@@ -76,12 +83,13 @@ public:
     static long long TargetsCreated();
 
 private:
-    D2DTargetPool();
+    explicit D2DTargetPool(D2DTargetKind kind);
     ~D2DTargetPool();
 
     D2DTargetPool(const D2DTargetPool&) = delete;
     D2DTargetPool& operator=(const D2DTargetPool&) = delete;
 
+    D2DTargetKind kind_;
     CRITICAL_SECTION lock_;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> rt_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_;

@@ -17,8 +17,9 @@
 
 // Which renderer paints the canvas.
 enum class RendererKind {
-    Direct2D,  // Direct2D/DirectWrite (the default)
-    Gdi,       // plain GDI with manual anti-aliasing
+    Direct2D,        // Direct2D/DirectWrite on the GPU (default)
+    Direct2DSoftware,// Direct2D/DirectWrite on the CPU (no D3D device)
+    Gdi,             // plain GDI with manual anti-aliasing
 };
 
 class Win32Surface {

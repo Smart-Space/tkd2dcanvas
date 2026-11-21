@@ -9,14 +9,15 @@ long long g_targetsCreated = 0;
 
 }  // namespace
 
-D2DTargetPool& D2DTargetPool::Instance() {
+D2DTargetPool& D2DTargetPool::Instance(D2DTargetKind kind) {
     // A function local static: it is created on first use and destroyed
     // when the module goes away (the render target is released then).
-    static D2DTargetPool pool;
-    return pool;
+    static D2DTargetPool hardware(D2DTargetKind::Hardware);
+    static D2DTargetPool software(D2DTargetKind::Software);
+    return kind == D2DTargetKind::Software ? software : hardware;
 }
 
-D2DTargetPool::D2DTargetPool() {
+D2DTargetPool::D2DTargetPool(D2DTargetKind kind) : kind_(kind) {
     InitializeCriticalSection(&lock_);
 }
 
@@ -37,23 +38,30 @@ bool D2DTargetPool::EnsureTarget() {
     // the buffer. Per-monitor DPI handling is deferred to Win32Dpi.
     const FLOAT dpiX = 96.0f, dpiY = 96.0f;
 
+    // The canvas draws into a memory DC (the double buffer) and blits that
+    // to the window.  With the hardware back end every frame is rasterized
+    // by the GPU and copied back into the DC - and the D3D device keeps the
+    // memory of those copies in its own cache, which grows in big steps
+    // (see docs/gdi_antialias.md 8.14).  The software back end rasterizes
+    // straight into the DC: no copy, no cache.
     const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-        D2D1_RENDER_TARGET_TYPE_DEFAULT,   // hardware, transparent WARP fallback
+        kind_ == D2DTargetKind::Software ? D2D1_RENDER_TARGET_TYPE_SOFTWARE
+                                          : D2D1_RENDER_TARGET_TYPE_DEFAULT,
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
         dpiX, dpiY);
 
     HRESULT hr = D2DContext::Factory()->CreateDCRenderTarget(&props, &rt_);
-    if (FAILED(hr)) {
+    if (FAILED(hr) && kind_ != D2DTargetKind::Software) {
         // Explicit software fallback for machines without usable D3D.
         const D2D1_RENDER_TARGET_PROPERTIES swProps = D2D1::RenderTargetProperties(
             D2D1_RENDER_TARGET_TYPE_SOFTWARE,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
             dpiX, dpiY);
         hr = D2DContext::Factory()->CreateDCRenderTarget(&swProps, &rt_);
-        if (FAILED(hr)) {
-            rt_.Reset();
-            return false;
-        }
+    }
+    if (FAILED(hr)) {
+        rt_.Reset();
+        return false;
     }
 
     rt_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);

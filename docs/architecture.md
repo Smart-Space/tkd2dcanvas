@@ -69,7 +69,17 @@ Tcl/Tk；`platform_win` 不知道 Tcl；`tk_glue` 是唯一同时认识两边的
   - 只能在**创建时**选择后端（见 [gdi_antialias.md](gdi_antialias.md) §8.9）。
   - 细节、限制与实测数据见 [gdi_antialias.md](gdi_antialias.md) §8。
 - `Win32Surface`：32bpp 双缓冲 + D2D 绘制 + `BitBlt`；由 Tk 的Expose/Configure 事件驱动 `Paint()`。`WM_PAINT` 使用精确的 update region 矩形列表（不是包围盒）；滚动时先用 `ScrollWindowEx` + 后备缓冲`ScrollContent` 平移像素，再只重画新暴露条带；滚动命令内还会用 `UpdateWindow` 强制同步绘制，避免条带在延迟绘制前显示旧内容。`ScrollWindowEx` 不再移动子窗口（`SW_SCROLLCHILDREN` 已移除）：window item 的内嵌窗口由 `SyncWindowItems`（tk_glue/CanvasTkWindowItem.cpp）按模型 bbox − view origin 显式定位/map/unmap，分数 origin 与完整 repaint fallback 路径都能对齐；子窗口移动后会使其旧区域重绘。
-- `D2DRenderer` 的 DC 绑定在 HDC/尺寸不变时跨帧复用；后备缓冲重建时由`Win32Surface` 调 `ResetBinding()` 强制重新 `BindDC`。
+- **进程级共享的离屏资源**（照 Tk 的 `tkWinAA.c`：那里的抗锯齿引擎把离屏缓冲
+  放在所有画布共享的状态里）：
+  - `GdiScratchPool`（`native/render/GdiScratchPool.{h,cpp}`）：抗锯齿引擎的
+    超采样暂存缓冲 + 回读缓冲 + 画刷 + 画笔缓存，**整个进程一份**
+    （默认预算 1 MB），不再每个画布控件一份；临界区保证同一时刻只有一个
+    形状在用这些缓冲。
+  - `D2DTargetPool`（`native/render/D2DTargetPool.{h,cpp}`）：`ID2D1DCRenderTarget`
+    和画笔**整个进程一个**（按光栅化器分硬件/软件两个池）；控件绘制前绑定到
+    自己的后备缓冲，画完归还。控件换了后备缓冲只重新绑定、不重建；绑定带
+    控件编号，控件没了绑定就作废。
+  - 详见 [gdi_antialias.md](gdi_antialias.md) §8.12。
 - `tk_glue`：`Tkd2dcanvas_Init`（package 入口，初始化 D2D/DWrite
   factory）、`tkd2dcanvas` 全局命令、`CanvasWidget`、各子命令分发。
 - `ItemRegistrations.cpp`：把 `rectangle`/`oval`/`line` 注册进 `ItemFactory`。
