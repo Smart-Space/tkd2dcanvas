@@ -14,6 +14,9 @@ namespace {
 struct WindowHook {
     WNDPROC original = nullptr;
     std::vector<CanvasWidget*> canvases;
+    // The damaged region of the last paint.  It is a member so that a paint
+    // does not allocate (the C runtime heap never gives that memory back).
+    std::vector<RECT> damaged;
 };
 
 std::map<HWND, WindowHook>& Hooks() {
@@ -43,7 +46,8 @@ LRESULT CALLBACK HookedWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             // before Tk validates the update region. Keeping it as a rect
             // list matters for a scroll frame, which exposes two disjoint
             // strips: their bounding box would be almost the whole window.
-            const std::vector<RECT> damaged = Win32Surface::UpdateRegion(hwnd);
+            Win32Surface::UpdateRegion(hwnd, hook.damaged);
+            const std::vector<RECT>& damaged = hook.damaged;
 
             // Let Tk paint the widget's own background first.
             LRESULT result = CallWindowProcW(hook.original, hwnd, msg, wParam, lParam);

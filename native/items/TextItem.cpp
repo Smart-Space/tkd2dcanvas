@@ -152,7 +152,7 @@ double TextItem::DistanceTo(Point p) const {
     return std::hypot(p.x - x_, p.y - y_);
 }
 
-void TextItem::Draw(Renderer& renderer) const {
+void TextItem::Draw(Renderer& renderer, Path&) const {
     if (IsHidden()) return;
     if (layout_.lines.empty()) return;
 
@@ -171,14 +171,12 @@ void TextItem::Draw(Renderer& renderer) const {
     style.overstrike = font_.overstrike;
     style.color = fill;
 
-    TextLayout layout;
-    layout.lines = layout_.lines;
+    TextLayout layout{layout_.lines, layout_.lineWidths};
     layout.origin = Point{x_, y_};
     layout.anchor = anchor_;
     layout.justify = justify_;
     layout.blockWidth = layout_.maxLineWidth;
     layout.lineSpacing = LineHeight();
     layout.angle = angle_;
-    layout.lineWidths = layout_.lineWidths;
     renderer.drawText(layout, style);
 }

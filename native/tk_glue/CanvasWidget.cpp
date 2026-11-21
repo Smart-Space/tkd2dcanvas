@@ -460,7 +460,8 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
 
     // Only paint the parts of the damage that touch the widget.
     const RECT bounds{0, 0, pixelWidth, pixelHeight};
-    std::vector<RECT> rects;
+    std::vector<RECT>& rects = paintRects_;
+    rects.clear();
     rects.reserve(damaged.size());
     for (const RECT& rect : damaged) {
         RECT overlap{};
@@ -468,18 +469,24 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
     }
     if (rects.empty()) return;
 
-    std::vector<std::pair<CanvasItem*, BBox>> items;
-    items.reserve(model.Size());
-    for (CanvasItem* item : model.ItemsInZOrder()) {
+    // The display list of this paint: the items in painting order together
+    // with their damage boxes.  Both the list and the path buffer are
+    // members, so a repaint does not allocate - the canvas would otherwise
+    // build a fresh list (and a fresh path per item) every time it is
+    // painted, and the C runtime heap never gives that memory back.
+    model.ItemsInZOrder(zOrderItems_);
+    paintItems_.clear();
+    paintItems_.reserve(zOrderItems_.size());
+    for (CanvasItem* item : zOrderItems_) {
         if (!item) continue;
-        items.emplace_back(item, item->DamageBBox());
+        paintItems_.emplace_back(item, item->DamageBBox());
     }
 
     // The clip lives in Win32Surface::Paint (background fill + item draws are
     // clipped in D2D), and the same rectangles gate the BitBlt to the target
     // DC, so a small change repaints only that region.
     surface.Paint(dc, rects,
-                  [this, &items](Renderer& renderer, const RECT& overlap) {
+                  [this](Renderer& renderer, const RECT& overlap) {
                       const CanvasView& view = model.View();
                       const double dx = view.XOffset();
                       const double dy = view.YOffset();
@@ -489,7 +496,7 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
                                          overlap.top + dy - kCullSlack,
                                          overlap.right + dx + kCullSlack,
                                          overlap.bottom + dy + kCullSlack};
-                      for (const auto& entry : items) {
+                      for (const auto& entry : paintItems_) {
                           if (entry.first->IsHidden()) {
                                continue;
                            }
@@ -497,7 +504,7 @@ void CanvasWidget::Paint(HDC dc, const std::vector<RECT>& damaged) {
                               !entry.second.Intersects(visible)) {
                               continue;
                           }
-                          entry.first->Draw(renderer);
+                          entry.first->Draw(renderer, paintPath_);
                       }
                       renderer.popTranslate();
                   });
@@ -534,7 +541,8 @@ void CanvasWidget::RepaintAfterScroll(double oldX, double oldY) {
         return;
     }
 
-    const std::vector<RECT> pending = Win32Surface::UpdateRegion(hwnd);
+    Win32Surface::UpdateRegion(hwnd, pendingDamage_);
+    const std::vector<RECT>& pending = pendingDamage_;
 
     long long pendingArea = 0;
     for (const RECT& rect : pending) {

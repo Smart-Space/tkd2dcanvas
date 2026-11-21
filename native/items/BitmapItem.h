@@ -23,7 +23,7 @@ public:
 
     BBox GetBBox() const override;
     void Translate(double dx, double dy) override;
-    void Draw(Renderer& renderer) const override;
+    void Draw(Renderer& renderer, Path& path) const override;
 
     std::vector<double> GetCoordinates() const override;
     bool SetCoordinates(const std::vector<double>& coords) override;

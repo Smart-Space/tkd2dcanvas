@@ -29,6 +29,9 @@ public:
 private:
     PenCache() = default;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID2D1StrokeStyle>> styles_;
+    // The key of the last lookup.  It is a member so that looking a stroke
+    // style up does not allocate (a repaint draws many strokes).
+    std::string key_;
 
-    static std::string BuildKey(const PenStyle& style);
+    static void BuildKey(const PenStyle& style, std::string& out);
 };

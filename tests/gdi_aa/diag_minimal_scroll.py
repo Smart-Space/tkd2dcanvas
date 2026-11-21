@@ -177,10 +177,14 @@ def main():
     root = tkinter.Tk()
     root.geometry("800x600+40+40")
 
-    cv = canvas_cls(root, width=800, height=600, background="white",
-                    scrollregion=(0, 0, 800, 6000))
+    # The renderer has to be given when the widget is created: the widget
+    # picks its renderer when its window is created, and a later
+    # "configure -renderer" would only change the setting, not the renderer.
+    options = {}
     if args.backend != "native":
-        cv.configure(renderer=args.backend)
+        options["renderer"] = args.backend
+    cv = canvas_cls(root, width=800, height=600, background="white",
+                    scrollregion=(0, 0, 800, 6000), **options)
     cv.pack()
 
     for i in range(args.items):

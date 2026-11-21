@@ -101,7 +101,7 @@ void OvalItem::SetCoordinates(double x1, double y1, double x2, double y2) {
     x1_ = x1; y1_ = y1; x2_ = x2; y2_ = y2;
 }
 
-void OvalItem::Draw(Renderer& renderer) const {
+void OvalItem::Draw(Renderer& renderer, Path& path) const {
     if (IsHidden()) return;
 
     const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
@@ -115,8 +115,8 @@ void OvalItem::Draw(Renderer& renderer) const {
     constexpr int kSegments = 64;
     constexpr double kTwoPi = 6.28318530717958647692;
 
-    Path path;
     path.closed = true;
+    path.points.clear();
     path.points.reserve(kSegments);
     for (int i = 0; i < kSegments; ++i) {
         const double angle = kTwoPi * static_cast<double>(i) / kSegments;

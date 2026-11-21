@@ -20,7 +20,7 @@ public:
     void Translate(double dx, double dy) override;
     double DistanceTo(Point p) const override;
     int AreaOverlap(const double rect[4]) const override;
-    void Draw(Renderer& renderer) const override;
+    void Draw(Renderer& renderer, Path& path) const override;
 
     const std::vector<Point>& Points() const { return points_; }
     void SetPoints(std::vector<Point> points) { points_ = std::move(points); }

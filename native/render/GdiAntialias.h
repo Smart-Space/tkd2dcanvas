@@ -163,6 +163,9 @@ private:
     std::vector<POINT> shapeScaled_;
     std::vector<POINT> tileScaled_;
 
+    // Scratch buffer for the dash pattern of a dashed pen.
+    std::vector<DWORD> dashes_;
+
     // Off-screen buffer the shape is drawn into (scale times the device
     // resolution), 32 bit, top-down.
     HDC scratchDC_ = nullptr;

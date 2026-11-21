@@ -69,6 +69,18 @@ struct CanvasWidget {
     Win32Surface surface;
     Color backgroundColor{255, 255, 255};
 
+    // Scratch buffers of a repaint.  They are members so that painting the
+    // canvas does not allocate: the items would otherwise get a fresh path
+    // each, and the display list would be built from scratch, every time the
+    // canvas is painted.
+    std::vector<CanvasItem*> zOrderItems_;
+    std::vector<std::pair<CanvasItem*, BBox>> paintItems_;
+    Path paintPath_;
+    // The damaged region of the last paint and the region that is still
+    // waiting to be painted.  Members, so that a paint does not allocate.
+    std::vector<RECT> paintRects_;
+    std::vector<RECT> pendingDamage_;
+
     HWND hwnd = nullptr; // the widget's own Win32 window ("TkChild")
     int pixelWidth = 0;
     int pixelHeight = 0;

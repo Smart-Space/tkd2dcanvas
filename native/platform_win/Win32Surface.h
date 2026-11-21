@@ -52,7 +52,9 @@ public:
     void Invalidate(const BBox& box);   // invalidate a canvas-unit rect
     void InvalidateAll();
 
-    static std::vector<RECT> UpdateRegion(HWND hwnd);
+    // The damaged region of the window, as a list of rectangles.  The list
+    // is filled into a buffer the caller owns and reuses.
+    static void UpdateRegion(HWND hwnd, std::vector<RECT>& out);
     bool ScrollContent(int dx, int dy);
 
     void Paint(HDC hdc, const std::vector<RECT>& damaged, const Painter& painter, int destX = 0, int destY = 0);
@@ -66,4 +68,10 @@ private:
     RendererKind rendererKind_ = RendererKind::Direct2D;
     int aaScale_ = 4;
     std::unique_ptr<SurfaceRenderer> renderer_;
+
+    // Scratch buffers of a paint.  They are members so that painting does
+    // not allocate: the C runtime heap never gives that memory back, and a
+    // canvas that is painted over and over would slowly grow.
+    Path backgroundPath_;
+    std::vector<RECT> paintRects_;
 };

@@ -75,8 +75,13 @@ inline double HalfPixelShift(const std::vector<double>& edges) {
 // (Tk's polygons have no -capstyle option), and such an end keeps its
 // place: it is not moved along the segment, so that the round shape of the
 // end stays exactly as it was drawn before.
+//
+// `edgesX` and `edgesY` are scratch buffers: the renderer owns them and
+// reuses them, so that aligning a stroke does not allocate.
 inline bool AlignStrokePath(const Path& path, double width, CapStyle cap,
-                             bool capEnds, Path& out) {
+                             bool capEnds, Path& out,
+                             std::vector<double>& edgesX,
+                             std::vector<double>& edgesY) {
     if (path.points.size() < 2 || width <= 0.0) return false;
 
     const double rounded = std::floor(width + 0.5);
@@ -84,8 +89,8 @@ inline bool AlignStrokePath(const Path& path, double width, CapStyle cap,
     const double half = rounded * 0.5;
 
     // The stroke edge coordinates of the path, per axis.
-    std::vector<double> edgesX;
-    std::vector<double> edgesY;
+    edgesX.clear();
+    edgesY.clear();
 
     if (!path.closed) {
         // Only a single straight segment can be moved onto the pixel grid.
@@ -93,7 +98,8 @@ inline bool AlignStrokePath(const Path& path, double width, CapStyle cap,
         const Point& a = path.points[0];
         const Point& b = path.points[1];
         if (a.y == b.y) {  // horizontal
-            edgesY = {a.y - half, a.y + half};
+            edgesY.push_back(a.y - half);
+            edgesY.push_back(a.y + half);
             const double lo = std::min(a.x, b.x);
             const double hi = std::max(a.x, b.x);
             // A flat cap ends at the end point, a round or square cap reaches
@@ -101,20 +107,25 @@ inline bool AlignStrokePath(const Path& path, double width, CapStyle cap,
             // direction, so it is not moved along the segment either.
             if (capEnds && lo != hi) {
                 if (cap == CapStyle::Flat) {
-                    edgesX = {lo, hi};
+                    edgesX.push_back(lo);
+                    edgesX.push_back(hi);
                 } else {
-                    edgesX = {lo - half, hi + half};
+                    edgesX.push_back(lo - half);
+                    edgesX.push_back(hi + half);
                 }
             }
         } else if (a.x == b.x) {  // vertical
-            edgesX = {a.x - half, a.x + half};
+            edgesX.push_back(a.x - half);
+            edgesX.push_back(a.x + half);
             const double lo = std::min(a.y, b.y);
             const double hi = std::max(a.y, b.y);
             if (capEnds) {
                 if (cap == CapStyle::Flat) {
-                    edgesY = {lo, hi};
+                    edgesY.push_back(lo);
+                    edgesY.push_back(hi);
                 } else {
-                    edgesY = {lo - half, hi + half};
+                    edgesY.push_back(lo - half);
+                    edgesY.push_back(hi + half);
                 }
             }
         } else {
@@ -151,6 +162,15 @@ inline bool AlignStrokePath(const Path& path, double width, CapStyle cap,
         p.y += dy;
     }
     return true;
+}
+
+// The same, but with scratch buffers of its own.  Callers that align many
+// strokes should use the overload above and keep the buffers.
+inline bool AlignStrokePath(const Path& path, double width, CapStyle cap,
+                             bool capEnds, Path& out) {
+    std::vector<double> edgesX;
+    std::vector<double> edgesY;
+    return AlignStrokePath(path, width, cap, capEnds, out, edgesX, edgesY);
 }
 
 }  // namespace tkd2dcanvas

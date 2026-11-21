@@ -83,15 +83,18 @@ void RectItem::SetCoordinates(double x1, double y1, double x2, double y2) {
     x1_ = x1; y1_ = y1; x2_ = x2; y2_ = y2;
 }
 
-void RectItem::Draw(Renderer& renderer) const {
+void RectItem::Draw(Renderer& renderer, Path& path) const {
     if (IsHidden()) return;
 
     const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
     const double top = std::min(y1_, y2_), bottom = std::max(y1_, y2_);
 
-    Path path;
     path.closed = true;
-    path.points = {{left, top}, {right, top}, {right, bottom}, {left, bottom}};
+    path.points.clear();
+    path.points.push_back(Point{left, top});
+    path.points.push_back(Point{right, top});
+    path.points.push_back(Point{right, bottom});
+    path.points.push_back(Point{left, bottom});
 
     if (const auto& fill = ItemStateFill(Style())) {
         renderer.fillPath(path, BrushStyle{*fill});

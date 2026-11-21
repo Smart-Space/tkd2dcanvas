@@ -97,7 +97,7 @@ void BitmapItem::BakePixels() {
     }
 }
 
-void BitmapItem::Draw(Renderer& renderer) const {
+void BitmapItem::Draw(Renderer& renderer, Path&) const {
     if (IsHidden()) return;
     if (pixels_.empty() || width_ <= 0 || height_ <= 0) return;
 

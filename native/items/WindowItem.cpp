@@ -40,7 +40,7 @@ void WindowItem::Scale(double xOrigin, double yOrigin, double xScale, double ySc
     if (itemHeight_ > 0) itemHeight_ = std::max(0, static_cast<int>(yScale * itemHeight_));
 }
 
-void WindowItem::Draw(Renderer&) const {}
+void WindowItem::Draw(Renderer&, Path&) const {}
 
 std::vector<double> WindowItem::GetCoordinates() const { return {x_, y_}; }
 

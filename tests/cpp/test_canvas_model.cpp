@@ -15,7 +15,7 @@ public:
     void Translate(double dx, double dy) override {
         x1_ += dx; x2_ += dx; y1_ += dy; y2_ += dy;
     }
-    void Draw(Renderer&) const override {}
+    void Draw(Renderer&, Path&) const override {}
 
 private:
     double x1_, y1_, x2_, y2_;

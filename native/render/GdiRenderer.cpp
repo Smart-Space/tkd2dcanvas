@@ -149,10 +149,11 @@ void GdiRenderer::drawLine(const Path& path, const PenStyle& pen) {
 
     // Half-pixel stroke edges are moved onto the pixel grid (see
     // AlignStrokePath), so that a 1px border stays 1px wide and crisp.
-    Path aligned;
+    // The buffers are members: aligning a stroke must not allocate.
     const Path& effective =
-        tkd2dcanvas::AlignStrokePath(path, pen.width, pen.cap, pen.capEnds, aligned)
-            ? aligned
+        tkd2dcanvas::AlignStrokePath(path, pen.width, pen.cap, pen.capEnds,
+                                      alignedPath_, alignEdgesX_, alignEdgesY_)
+            ? alignedPath_
             : path;
 
     std::vector<AaPoint>& points = devicePoints_;
@@ -168,7 +169,9 @@ void GdiRenderer::drawLine(const Path& path, const PenStyle& pen) {
 
 void GdiRenderer::DrawPolylinePlain(const std::vector<AaPoint>& points,
                                      bool closed, const PenStyle& pen) {
-    std::vector<POINT> rounded(points.size());
+    // The buffer is a member: the fallback path must not allocate either.
+    std::vector<POINT>& rounded = roundedPoints_;
+    rounded.resize(points.size());
     for (std::size_t i = 0; i < points.size(); ++i) {
         rounded[i].x = static_cast<LONG>(std::lround(points[i].x));
         rounded[i].y = static_cast<LONG>(std::lround(points[i].y));
@@ -264,7 +267,8 @@ void GdiRenderer::fillPath(const Path& path, const BrushStyle& brush) {
     if (!antialias_->FillPolygon(dc_, points.data(),
                                  static_cast<int>(points.size()), brush.color)) {
         // Fall back to plain GDI when the shape cannot be anti-aliased.
-        std::vector<POINT> rounded(points.size());
+        std::vector<POINT>& rounded = roundedPoints_;
+        rounded.resize(points.size());
         for (std::size_t i = 0; i < points.size(); ++i) {
             rounded[i].x = static_cast<LONG>(std::lround(points[i].x));
             rounded[i].y = static_cast<LONG>(std::lround(points[i].y));

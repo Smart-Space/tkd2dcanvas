@@ -46,5 +46,11 @@ private:
     void EnsureBrush();
     void BuildGeometry(const Path& path, ID2D1PathGeometry* geometry) const;
 
+    // Scratch buffers for the half pixel stroke alignment (see
+    // StrokeAlign.h).  Reused, so that drawing a stroke does not allocate.
+    Path alignedPath_;
+    std::vector<double> alignEdgesX_;
+    std::vector<double> alignEdgesY_;
+
     std::unique_ptr<D2DRendererImpl> impl_;
 };

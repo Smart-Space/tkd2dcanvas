@@ -54,7 +54,7 @@ void ImageItem::ClearPixels() {
     ++generation_;
 }
 
-void ImageItem::Draw(Renderer& renderer) const {
+void ImageItem::Draw(Renderer& renderer, Path&) const {
     if (IsHidden()) return;
     if (pixels_.empty() || width_ <= 0 || height_ <= 0) return;
 

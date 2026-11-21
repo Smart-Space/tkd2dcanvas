@@ -118,14 +118,13 @@ bool CanvasModel::MoveItemsBelow(const std::vector<int>& ids, int anchorId) {
     return true;
 }
 
-std::vector<CanvasItem*> CanvasModel::ItemsInZOrder() const {
-    std::vector<CanvasItem*> result;
-    result.reserve(zOrder_.size());
+void CanvasModel::ItemsInZOrder(std::vector<CanvasItem*>& out) const {
+    out.clear();
+    out.reserve(zOrder_.size());
     for (int id : zOrder_) {
         auto it = items_.find(id);
-        if (it != items_.end()) result.push_back(it->second.get());
+        if (it != items_.end()) out.push_back(it->second.get());
     }
-    return result;
 }
 
 bool CanvasModel::Translate(const std::vector<int>& ids, double dx, double dy) {

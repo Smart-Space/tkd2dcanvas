@@ -358,6 +358,12 @@ bool ArcItem::SetCoordinates(const std::vector<double>& coords) {
 }
 
 std::vector<Point> ArcItem::SampleArc() const {
+    std::vector<Point> points;
+    SampleArc(points);
+    return points;
+}
+
+void ArcItem::SampleArc(std::vector<Point>& out) const {
     const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
     const double top = std::min(y1_, y2_), bottom = std::max(y1_, y2_);
     const double cx = (left + right) * 0.5, cy = (top + bottom) * 0.5;
@@ -368,14 +374,12 @@ std::vector<Point> ArcItem::SampleArc() const {
     const int segments = std::clamp(
         static_cast<int>(std::ceil(std::fabs(sweep) / (kDegToRad * 2.0))), 8, 360);
 
-    std::vector<Point> points;
-    points.reserve(static_cast<std::size_t>(segments) + 1);
+    out.reserve(static_cast<std::size_t>(segments) + 1);
     for (int i = 0; i <= segments; ++i) {
         const double angle = start + sweep * static_cast<double>(i) / segments;
         // Canvas coords are y-down; Tk angles grow counter-clockwise.
-        points.push_back(Point{cx + rx * std::cos(angle), cy - ry * std::sin(angle)});
+        out.push_back(Point{cx + rx * std::cos(angle), cy - ry * std::sin(angle)});
     }
-    return points;
 }
 
 bool ArcItem::DegeneratesToFullEllipse() const {
@@ -486,7 +490,7 @@ double ArcItem::DistanceTo(Point p) const {
     return ArcDistanceTo(p);
 }
 
-void ArcItem::Draw(Renderer& renderer) const {
+void ArcItem::Draw(Renderer& renderer, Path& path) const {
     if (IsHidden()) return;
 
     const double left = std::min(x1_, x2_), right = std::max(x1_, x2_);
@@ -494,18 +498,21 @@ void ArcItem::Draw(Renderer& renderer) const {
     if (left == right && top == bottom) return;
     if (extent_ == 0.0) return;  // Tk draws nothing for a zero-extent arc
 
-    std::vector<Point> arc = SampleArc();
-    if (arc.size() < 2) return;
+    // The arc points go straight into the caller's path buffer: a repaint
+    // must not allocate a point list per arc.
+    path.points.clear();
+    SampleArc(path.points);
+    if (path.points.size() < 2) return;
     if (DegeneratesToFullEllipse()) {
         const double cx = (left + right) * 0.5, cy = (top + bottom) * 0.5;
         const double rx = (right - left) * 0.5, ry = (bottom - top) * 0.5;
         const int segments = 180;
-        arc.clear();
-        arc.reserve(static_cast<std::size_t>(segments) + 1);
+        path.points.clear();
+        path.points.reserve(static_cast<std::size_t>(segments) + 1);
         for (int i = 0; i <= segments; ++i) {
             const double angle = 2.0 * 3.14159265358979323846 *
                                  static_cast<double>(i) / segments;
-            arc.push_back(Point{cx + rx * std::cos(angle), cy - ry * std::sin(angle)});
+            path.points.push_back(Point{cx + rx * std::cos(angle), cy - ry * std::sin(angle)});
         }
     }
 
@@ -516,28 +523,21 @@ void ArcItem::Draw(Renderer& renderer) const {
         case ArcStyle::Arc: {
             // Only the arc line; -fill is meaningless here.
             if (!outline) return;
-            Path path;
             path.closed = false;
-            path.points = std::move(arc);
             renderer.drawLine(path, ItemPenStyle(*outline, Style(),
                                                   CapStyle::Flat, JoinStyle::Bevel));
             break;
         }
         case ArcStyle::Chord: {
-            Path path;
             path.closed = true;  // closes back to the arc's start point: the chord
-            path.points = std::move(arc);
             if (fill) renderer.fillPath(path, BrushStyle{*fill});
             if (outline) renderer.drawLine(path, ItemPenStyle(*outline, Style()));
             break;
         }
         case ArcStyle::PieSlice: {
             const double cx = (left + right) * 0.5, cy = (top + bottom) * 0.5;
-            Path path;
             path.closed = true;
-            path.points.reserve(arc.size() + 1);
-            path.points.push_back(Point{cx, cy});
-            path.points.insert(path.points.end(), arc.begin(), arc.end());
+            path.points.insert(path.points.begin(), Point{cx, cy});
             if (fill) renderer.fillPath(path, BrushStyle{*fill});
             if (outline) renderer.drawLine(path, ItemPenStyle(*outline, Style()));
             break;

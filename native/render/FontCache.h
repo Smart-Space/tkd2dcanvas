@@ -24,4 +24,9 @@ public:
 private:
     FontCache() = default;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<IDWriteTextFormat>> formats_;
+    // The key of the last lookup.  It is a member so that looking a text
+    // format up does not allocate (a repaint draws many text items).
+    std::string key_;
+
+    static void BuildKey(const TextStyle& style, std::string& out);
 };

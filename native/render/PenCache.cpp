@@ -1,6 +1,6 @@
 #include "PenCache.h"
 
-#include <sstream>
+#include <cstdio>
 #include <vector>
 
 namespace {
@@ -27,24 +27,40 @@ PenCache& PenCache::Instance() {
 }
 
 std::string PenCache::KeyOf(const PenStyle& style) const {
-    return BuildKey(style);
+    std::string key;
+    BuildKey(style, key);
+    return key;
 }
 
-std::string PenCache::BuildKey(const PenStyle& style) {
-    std::ostringstream oss;
-    oss << style.width << '@';
-    for (float d : style.dash.dashes) oss << d << ',';
-    oss << style.dash.offset << '|' << static_cast<int>(style.cap)
-        << static_cast<int>(style.join) << '|' << (style.antialias ? 'A' : 'L');
-    return oss.str();
+void PenCache::BuildKey(const PenStyle& style, std::string& out) {
+    // The key is built by hand: a string stream would allocate for every
+    // stroke, and a repaint draws a lot of strokes.
+    out.clear();
+    char buffer[64];
+    int written = std::snprintf(buffer, sizeof(buffer), "%g@",
+                                static_cast<double>(style.width));
+    if (written > 0) out.append(buffer, static_cast<std::size_t>(written));
+    for (float d : style.dash.dashes) {
+        written = std::snprintf(buffer, sizeof(buffer), "%g,",
+                                static_cast<double>(d));
+        if (written > 0) out.append(buffer, static_cast<std::size_t>(written));
+    }
+    written = std::snprintf(buffer, sizeof(buffer), "%g|%d|%d|%c",
+                            static_cast<double>(style.dash.offset),
+                            static_cast<int>(style.cap),
+                            static_cast<int>(style.join),
+                            style.antialias ? 'A' : 'L');
+    if (written > 0) out.append(buffer, static_cast<std::size_t>(written));
 }
 
 Microsoft::WRL::ComPtr<ID2D1StrokeStyle> PenCache::GetStrokeStyle(ID2D1Factory* factory,
                                                                   const PenStyle& style) {
     if (!factory) return nullptr;
 
-    const std::string key = BuildKey(style);
-    auto it = styles_.find(key);
+    // The key buffer is a member: looking a stroke style up must not
+    // allocate, otherwise every stroke of every repaint would.
+    BuildKey(style, key_);
+    auto it = styles_.find(key_);
     if (it != styles_.end()) return it->second;
 
     const D2D1_CAP_STYLE cap = ToD2DCap(style.cap);
@@ -75,6 +91,6 @@ Microsoft::WRL::ComPtr<ID2D1StrokeStyle> PenCache::GetStrokeStyle(ID2D1Factory* 
     const HRESULT hr = factory->CreateStrokeStyle(props, dashes, dashCount, &strokeStyle);
     if (FAILED(hr)) return nullptr;
 
-    styles_.emplace(key, strokeStyle);
+    styles_.emplace(key_, strokeStyle);
     return strokeStyle;
 }

@@ -457,7 +457,9 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
 
         // A custom dash pattern, scaled along with the shape.  Dashed pens
         // are not cached (they are rare and the pattern differs per shape).
-        std::vector<DWORD> dashes;
+        // The buffer is a member: drawing a stroke must not allocate.
+        std::vector<DWORD>& dashes = dashes_;
+        dashes.clear();
         if (!pen->dash.IsSolid()) {
             for (float dash : pen->dash.dashes) {
                 float scaledDash = dash * scale_;

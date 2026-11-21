@@ -38,7 +38,10 @@ public:
     bool MoveItemsAbove(const std::vector<int>& ids, int anchorId);
     // Same, but directly below the anchor (kInvalidId = bottom of the list).
     bool MoveItemsBelow(const std::vector<int>& ids, int anchorId);
-    std::vector<CanvasItem*> ItemsInZOrder() const;  // bottom-to-top
+    // The items in painting order (bottom-to-top).  The vector is filled
+    // into a buffer the caller owns and reuses: a repaint must not
+    // allocate a list of the items over and over.
+    void ItemsInZOrder(std::vector<CanvasItem*>& out) const;
 
     // --- Operations -------------------------------------------------------------
     bool Translate(const std::vector<int>& ids, double dx, double dy);

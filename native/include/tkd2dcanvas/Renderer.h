@@ -44,14 +44,18 @@ struct TextStyle {
 };
 
 struct TextLayout {
-    std::vector<std::string> lines;  // already wrapped
+    TextLayout(const std::vector<std::string>& linesIn,
+               const std::vector<double>& lineWidthsIn)
+        : lines(linesIn), lineWidths(lineWidthsIn) {}
+
+    const std::vector<std::string>& lines;  // already wrapped
     Point origin;                    // anchor point in canvas coords
     std::string anchor = "nw";       // Tk anchor: n/ne/e/se/s/sw/w/nw/c
     double lineSpacing = 0.0;        // 0 = font default
     std::string justify = "left";    // left|center|right; lines are aligned within blockWidth
     double blockWidth = 0.0;         // 0 = widest line at draw time
     double angle = 0.0;              // degrees, counter-clockwise around `origin` (Tk -angle)
-    std::vector<double> lineWidths;
+    const std::vector<double>& lineWidths;
 };
 
 // Vertical metric shared by the text item's bbox and the renderer, so the

@@ -59,30 +59,33 @@ void Win32Surface::InvalidateAll() {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-std::vector<RECT> Win32Surface::UpdateRegion(HWND hwnd) {
-    std::vector<RECT> rects;
-    if (!hwnd) return rects;
+void Win32Surface::UpdateRegion(HWND hwnd, std::vector<RECT>& out) {
+    out.clear();
+    if (!hwnd) return;
 
     HRGN region = CreateRectRgn(0, 0, 0, 0);
-    if (!region) return rects;
+    if (!region) return;
+
+    // The buffer for the region data is kept between the calls: a paint
+    // must not allocate.
+    static thread_local std::vector<DWORD> buffer;
 
     const int type = GetUpdateRgn(hwnd, region, FALSE);
     if (type != ERROR && type != NULLREGION) {
         const DWORD bytes = GetRegionData(region, 0, nullptr);
         if (bytes > sizeof(RGNDATAHEADER)) {
             // DWORD-aligned storage keeps RGNDATA/RECT access well aligned.
-            std::vector<DWORD> buffer((bytes + sizeof(DWORD) - 1) / sizeof(DWORD));
+            buffer.resize((bytes + sizeof(DWORD) - 1) / sizeof(DWORD));
             auto* data = reinterpret_cast<RGNDATA*>(buffer.data());
             if (GetRegionData(region, bytes, data) &&
                 data->rdh.nCount != 0) {
                 const RECT* first = reinterpret_cast<const RECT*>(data->Buffer);
-                rects.assign(first, first + data->rdh.nCount);
+                out.assign(first, first + data->rdh.nCount);
             }
         }
     }
 
     DeleteObject(region);
-    return rects;
 }
 
 bool Win32Surface::ScrollContent(int dx, int dy) {
@@ -106,7 +109,8 @@ void Win32Surface::Paint(HDC hdc, const std::vector<RECT>& damaged,
 
     // Clamp the damage to the buffer and drop empty rectangles.
     const RECT bounds{0, 0, width_, height_};
-    std::vector<RECT> rects;
+    std::vector<RECT>& rects = paintRects_;
+    rects.clear();
     rects.reserve(damaged.size());
     for (const RECT& rect : damaged) {
         RECT clipped{};
@@ -152,12 +156,14 @@ void Win32Surface::Paint(HDC hdc, const std::vector<RECT>& damaged,
                             static_cast<double>(rect.right),
                             static_cast<double>(rect.bottom)};
             renderer_->pushClip(clip);
-            Path background;
+            // The background path is a member: filling it must not allocate.
+            Path& background = backgroundPath_;
             background.closed = true;
-            background.points = {{clip.left, clip.top},
-                                 {clip.right, clip.top},
-                                 {clip.right, clip.bottom},
-                                 {clip.left, clip.bottom}};
+            background.points.clear();
+            background.points.push_back(Point{clip.left, clip.top});
+            background.points.push_back(Point{clip.right, clip.top});
+            background.points.push_back(Point{clip.right, clip.bottom});
+            background.points.push_back(Point{clip.left, clip.bottom});
             renderer_->fillPath(background, BrushStyle{background_});
             painter(*renderer_, rect);
             renderer_->popClip();

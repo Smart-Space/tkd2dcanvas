@@ -159,13 +159,17 @@ bool LineItem::SetCoordinates(const std::vector<double>& coords) {
     return true;
 }
 
-void LineItem::Draw(Renderer& renderer) const {
+void LineItem::Draw(Renderer& renderer, Path& path) const {
     if (IsHidden()) return;
     if (points_.size() < 2) return;
 
-    Path path;
     path.closed = false;
-    path.points = DisplayPoints();
+    if (smooth_.mode != SmoothMode::None && points_.size() > 2) {
+        // A smoothed line is rare; its points are computed on the spot.
+        path.points = SmoothCurvePoints(points_, smooth_);
+    } else {
+        path.points.assign(points_.begin(), points_.end());
+    }
 
     // Lines paint through -fill (Tk semantics); -outline is accepted as an
     // alias when -fill is empty.

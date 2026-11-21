@@ -93,6 +93,16 @@ private:
     // memory usage while scrolling.
     std::vector<AaPoint> devicePoints_;
 
+    // Scratch buffers for the half pixel stroke alignment (see
+    // StrokeAlign.h).  Reused, so that drawing a stroke does not allocate.
+    Path alignedPath_;
+    std::vector<double> alignEdgesX_;
+    std::vector<double> alignEdgesY_;
+
+    // Scratch buffer for the plain GDI fallback (the shape could not be
+    // anti-aliased).
+    std::vector<POINT> roundedPoints_;
+
     std::unique_ptr<GdiAntialias> antialias_;
 };
 

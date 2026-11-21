@@ -26,7 +26,7 @@ public:
     void Translate(double dx, double dy) override;
     double DistanceTo(Point p) const override;
     int AreaOverlap(const double rect[4]) const override;
-    void Draw(Renderer& renderer) const override;
+    void Draw(Renderer& renderer, Path& path) const override;
 
     double Start() const { return start_; }
     double Extent() const { return extent_; }
@@ -50,6 +50,8 @@ private:
     ArcStyle style_ = ArcStyle::PieSlice;
 
     std::vector<Point> SampleArc() const;
+    // Same, but the points go into a buffer the caller owns.
+    void SampleArc(std::vector<Point>& out) const;
 
     // True when the arc is so small that the native canvas draws the whole
     // ellipse instead (Tk on Windows draws the arc through GDI, which rounds

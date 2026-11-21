@@ -180,17 +180,21 @@ bool PolygonItem::SetCoordinates(const std::vector<double>& coords) {
     return true;
 }
 
-void PolygonItem::Draw(Renderer& renderer) const {
+void PolygonItem::Draw(Renderer& renderer, Path& path) const {
     if (IsHidden()) return;
     if (points_.empty()) return;
 
-    Path path;
     // A two-point "polygon" is a line (Tk draws it as a single segment
     // with round joins at the ends). Stroke it as an open path so the
     // stroke can be snapped onto the pixel grid like create_line is;
     // AlignStrokePath's closed branch needs at least 3 points.
     path.closed = points_.size() >= 3;
-    path.points = DisplayPoints();
+    if (smooth_.mode != SmoothMode::None) {
+        // A smoothed polygon is rare; its points are computed on the spot.
+        path.points = DisplayPoints();
+    } else {
+        path.points.assign(points_.begin(), points_.end());
+    }
 
     if (points_.size() >= 3) {
         if (const auto& fill = ItemStateFill(Style())) {
