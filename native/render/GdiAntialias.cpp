@@ -5,17 +5,17 @@
 #include <cmath>
 #include <cstring>
 
+#include "GdiScratchPool.h"
+
 namespace tkd2dcanvas {
 
 namespace {
 
-// The color the shape is drawn with inside the off-screen buffer.  The
-// engine compares the samples against it to find out which ones are
-// covered, so it only has to differ from the color the buffer is cleared
-// with.
-constexpr COLORREF kMaskColor = RGB(1, 2, 3);
+// The color the shape is drawn with inside the off-screen buffer is
+// kAaMaskColor (see GdiScratchPool.h): the engine compares the samples
+// against it to find out which ones are covered, so it only has to differ
+// from the color the buffer is cleared with.
 constexpr COLORREF kClearColor = RGB(0, 0, 0);
-
 // A COLORREF is 0x00BBGGRR, while a DWORD read from a 32 bit DIB is
 // 0xAARRGGBB (the DIB stores the pixels as B, G, R, X).  The two have to be
 // converted into each other whenever a color is compared with a pixel or
@@ -24,21 +24,6 @@ inline DWORD DwordFromColor(COLORREF color) {
     return static_cast<DWORD>(((color >> 16) & 0xFF) |
                                static_cast<DWORD>(color & 0xFF00) |
                                (static_cast<DWORD>(color & 0xFF) << 16));
-}
-
-// Creates a top-down 32 bit DIB section whose pixels can be accessed
-// directly through a pointer.
-HBITMAP CreateTopDownDib(HDC dc, int width, int height, void** bits) {
-    BITMAPINFO info;
-    std::memset(&info, 0, sizeof(info));
-    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = width;
-    info.bmiHeader.biHeight = -height;  // top-down
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-    *bits = nullptr;
-    return CreateDIBSection(dc, &info, DIB_RGB_COLORS, bits, nullptr, 0);
 }
 
 // GDI caps and joins, mapped from the renderer's style enums.
@@ -80,7 +65,7 @@ void DrawRoundCapEnd(DWORD* bits, int scratchWidth, int scale,
     const int x1 = std::min(hiWidth - 1, static_cast<int>(std::floor(cx + radiusHi)));
     const int y0 = std::max(0, static_cast<int>(std::floor(cy - radiusHi)));
     const int y1 = std::min(hiHeight - 1, static_cast<int>(std::floor(cy + radiusHi)));
-    const DWORD mask = DwordFromColor(kMaskColor);
+    const DWORD mask = DwordFromColor(kAaMaskColor);
     for (int y = y0; y <= y1; ++y) {
         DWORD* row = bits + static_cast<size_t>(y) * scratchWidth;
         const double sy = static_cast<double>(y) + 0.5;
@@ -112,9 +97,9 @@ DWORD GdiJoinStyle(JoinStyle join) {
 
 GdiAntialias::GdiAntialias() = default;
 
-GdiAntialias::~GdiAntialias() {
-    ReleaseBuffers();
-}
+// The off-screen buffers belong to the pool, not to the engine: the engine
+// does not have to release anything when it goes away.
+GdiAntialias::~GdiAntialias() = default;
 
 void GdiAntialias::SetScale(int scale) {
     scale_ = std::clamp(scale, kMinScale, kMaxScale);
@@ -125,147 +110,29 @@ void GdiAntialias::SetScratchBudget(long long bytes) {
 }
 
 long long GdiAntialias::ScratchBytes() const {
+    // The buffers are shared, so this is what *this* engine uses: the part
+    // of the pool's buffers that the last shape needed.
     const long long scratch =
-        static_cast<long long>(scratchWidth_) * scratchHeight_ * 4;
+        static_cast<long long>(usedScratchWidth_) * usedScratchHeight_ * 4;
     const long long readBack =
-        static_cast<long long>(readBackWidth_) * readBackHeight_ * 4;
+        static_cast<long long>(usedReadBackWidth_) * usedReadBackHeight_ * 4;
     return scratch + readBack;
 }
 
-HPEN GdiAntialias::MaskPen(int widthHi, DWORD capStyle, DWORD joinStyle) {
-    for (const CachedPen& entry : penCache_) {
-        if (entry.widthHi == widthHi && entry.capStyle == capStyle &&
-            entry.joinStyle == joinStyle) {
-            return entry.pen;
-        }
-    }
-
-    LOGBRUSH logBrush;
-    logBrush.lbStyle = BS_SOLID;
-    logBrush.lbColor = kMaskColor;
-    logBrush.lbHatch = 0;
-    const DWORD style = PS_GEOMETRIC | capStyle | joinStyle;
-    HPEN pen = ExtCreatePen(style, static_cast<DWORD>(widthHi), &logBrush, 0, nullptr);
-    if (!pen) return nullptr;
-
-    penCache_.push_back(CachedPen{widthHi, capStyle, joinStyle, pen});
-    return pen;
-}
-
-void GdiAntialias::ReleaseBuffers() {
-    if (maskBrush_) {
-        DeleteObject(maskBrush_);
-        maskBrush_ = nullptr;
-    }
-    for (CachedPen& entry : penCache_) {
-        if (entry.pen) DeleteObject(entry.pen);
-    }
-    penCache_.clear();
-
-    if (scratchDC_) {
-        if (scratchBitmap_) SelectObject(scratchDC_, scratchBitmap_);
-        DeleteDC(scratchDC_);
-        scratchDC_ = nullptr;
-    }
-    if (scratchBitmap_) {
-        DeleteObject(scratchBitmap_);
-        scratchBitmap_ = nullptr;
-    }
-    scratchBits_ = nullptr;
-    scratchWidth_ = 0;
-    scratchHeight_ = 0;
-
-    if (readBackDC_) {
-        if (readBackBitmap_) SelectObject(readBackDC_, readBackBitmap_);
-        DeleteDC(readBackDC_);
-        readBackDC_ = nullptr;
-    }
-    if (readBackBitmap_) {
-        DeleteObject(readBackBitmap_);
-        readBackBitmap_ = nullptr;
-    }
-    readBackBits_ = nullptr;
-    readBackWidth_ = 0;
-    readBackHeight_ = 0;
+long long GdiAntialias::SharedScratchBytes() {
+    return GdiScratchPool::Instance().Bytes();
 }
 
 bool GdiAntialias::EnsureScratch(int width, int height) {
-    if (!scratchDC_) {
-        scratchDC_ = CreateCompatibleDC(nullptr);
-        if (!scratchDC_) return false;
-    }
-    if (width <= scratchWidth_ && height <= scratchHeight_) return true;
-
-    // Round the size up so that shapes of slightly different sizes can
-    // share the same buffer.
-    const int newWidth = std::max((width + 63) & ~63, scratchWidth_);
-    const int newHeight = std::max((height + 63) & ~63, scratchHeight_);
-
-    void* bits = nullptr;
-    HBITMAP bitmap = CreateTopDownDib(scratchDC_, newWidth, newHeight, &bits);
-    if (!bitmap) return false;
-    if (scratchBitmap_) {
-        SelectObject(scratchDC_, scratchBitmap_);
-        DeleteObject(scratchBitmap_);
-    }
-    SelectObject(scratchDC_, bitmap);
-    scratchBitmap_ = bitmap;
-    scratchBits_ = bits;
-    scratchWidth_ = newWidth;
-    scratchHeight_ = newHeight;
-    return true;
+    return GdiScratchPool::Instance().EnsureScratch(width, height);
 }
 
 bool GdiAntialias::EnsureReadBack(int width, int height) {
-    if (!readBackDC_) {
-        readBackDC_ = CreateCompatibleDC(nullptr);
-        if (!readBackDC_) return false;
-    }
-    if (width <= readBackWidth_ && height <= readBackHeight_) return true;
-
-    const int newWidth = std::max((width + 63) & ~63, readBackWidth_);
-    const int newHeight = std::max((height + 63) & ~63, readBackHeight_);
-
-    void* bits = nullptr;
-    HBITMAP bitmap = CreateTopDownDib(readBackDC_, newWidth, newHeight, &bits);
-    if (!bitmap) return false;
-    if (readBackBitmap_) {
-        SelectObject(readBackDC_, readBackBitmap_);
-        DeleteObject(readBackBitmap_);
-    }
-    SelectObject(readBackDC_, bitmap);
-    readBackBitmap_ = bitmap;
-    readBackBits_ = bits;
-    readBackWidth_ = newWidth;
-    readBackHeight_ = newHeight;
-    return true;
+    return GdiScratchPool::Instance().EnsureReadBack(width, height);
 }
 
 void GdiAntialias::TrimBuffers() {
-    // Buffers that grew beyond the retention limit are given back: they were
-    // only needed for one unusually big shape.
-    if (scratchWidth_ > 0 &&
-        static_cast<long long>(scratchWidth_) * scratchHeight_ > kRetainSamples) {
-        if (scratchBitmap_) {
-            SelectObject(scratchDC_, scratchBitmap_);
-            DeleteObject(scratchBitmap_);
-            scratchBitmap_ = nullptr;
-        }
-        scratchBits_ = nullptr;
-        scratchWidth_ = 0;
-        scratchHeight_ = 0;
-    }
-    if (readBackWidth_ > 0 &&
-        static_cast<long long>(readBackWidth_) * readBackHeight_ > kRetainPixels) {
-        if (readBackBitmap_) {
-            SelectObject(readBackDC_, readBackBitmap_);
-            DeleteObject(readBackBitmap_);
-            readBackBitmap_ = nullptr;
-        }
-        readBackBits_ = nullptr;
-        readBackWidth_ = 0;
-        readBackHeight_ = 0;
-    }
+    GdiScratchPool::Instance().Trim();
 }
 
 bool GdiAntialias::FillPolygon(HDC dc, const AaPoint* points, int count,
@@ -287,6 +154,10 @@ bool GdiAntialias::RenderShape(HDC dc, const AaPoint* points, int count,
                                 bool closed, const PenStyle* pen,
                                 const BrushStyle* brush) {
     if (!dc || !points || count < 2) return false;
+
+    // The off-screen buffers are shared by the whole process, so the pool is
+    // held while the shape is rendered into them.
+    GdiScratchPool::Guard guard;
 
     // Bounding box of the shape in device coordinates, plus a margin for
     // the stroke width.
@@ -403,10 +274,21 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
                                int left, int top, int width, int height) {
     if (width <= 0 || height <= 0) return true;
 
+    GdiScratchPool& pool = GdiScratchPool::Instance();
+
     const int hiWidth = width * scale_;
     const int hiHeight = height * scale_;
     if (static_cast<long long>(hiWidth) * hiHeight > kMaxSamples) return false;
     if (!EnsureScratch(hiWidth, hiHeight)) return false;
+
+    // What this shape uses of the shared buffers (the pool may hold more:
+    // its buffers are shared with the other canvas widgets).  The biggest
+    // tile decides how much the buffers have to be.
+    usedScratchWidth_ = std::max(usedScratchWidth_, (hiWidth + 63) & ~63);
+    usedScratchHeight_ = std::max(usedScratchHeight_, (hiHeight + 63) & ~63);
+
+    DWORD* const scratchBits = static_cast<DWORD*>(pool.ScratchBits());
+    const int scratchWidth = pool.ScratchWidth();
 
     // Clear the part of the buffer that is going to be read back: uncovered
     // samples must differ from the mask color.  Only the rows of the tile
@@ -414,8 +296,7 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
     // bigger than the tile and clearing all of it for every tile would
     // dominate the rendering time.
     for (int y = 0; y < hiHeight; ++y) {
-        DWORD* row = static_cast<DWORD*>(scratchBits_) +
-                     static_cast<size_t>(y) * scratchWidth_;
+        DWORD* row = scratchBits + static_cast<size_t>(y) * scratchWidth;
         std::memset(row, 0, static_cast<size_t>(hiWidth) * sizeof(DWORD));
     }
 
@@ -473,13 +354,13 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
         }
 
         if (dashes.empty()) {
-            penHandle = MaskPen(widthHi, capStyle, joinStyle);
+            penHandle = pool.MaskPen(widthHi, capStyle, joinStyle);
             penIsCached = penHandle != nullptr;
         }
         if (!penIsCached) {
             LOGBRUSH logBrush;
             logBrush.lbStyle = BS_SOLID;
-            logBrush.lbColor = kMaskColor;
+            logBrush.lbColor = kAaMaskColor;
             logBrush.lbHatch = 0;
             DWORD style = PS_GEOMETRIC | capStyle | joinStyle;
             if (!dashes.empty()) {
@@ -495,29 +376,28 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
     if (brush) {
         // The fill always uses the mask color, so one brush serves every
         // shape.  Creating one per shape would churn GDI objects.
-        if (!maskBrush_) {
-            maskBrush_ = CreateSolidBrush(kMaskColor);
-        }
-        brushHandle = maskBrush_;
+        brushHandle = pool.MaskBrush();
     }
 
-    oldPen = SelectObject(scratchDC_, penHandle);
+    HDC scratchDC = pool.ScratchDC();
+
+    oldPen = SelectObject(scratchDC, penHandle);
     if (brush) {
-        oldBrush = SelectObject(scratchDC_, brushHandle);
+        oldBrush = SelectObject(scratchDC, brushHandle);
     }
 
     if (brush) {
-        SetPolyFillMode(scratchDC_, WINDING);
-        Polygon(scratchDC_, scaled.data(), count);
+        SetPolyFillMode(scratchDC, WINDING);
+        Polygon(scratchDC, scaled.data(), count);
     } else {
-        SetBkMode(scratchDC_, TRANSPARENT);
-        BeginPath(scratchDC_);
-        Polyline(scratchDC_, scaled.data(), count);
+        SetBkMode(scratchDC, TRANSPARENT);
+        BeginPath(scratchDC);
+        Polyline(scratchDC, scaled.data(), count);
         if (closed) {
-            CloseFigure(scratchDC_);
+            CloseFigure(scratchDC);
         }
-        EndPath(scratchDC_);
-        StrokePath(scratchDC_);
+        EndPath(scratchDC);
+        StrokePath(scratchDC);
 
         // Two half-disks at the open ends make up the round cap.  Writing
         // them here (after the body is drawn) keeps them anti-aliased and
@@ -538,16 +418,17 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
                 // moves it into the tile.
                 const double centerX = (from.x - shapeLeft) * scale_;
                 const double centerY = (from.y - shapeTop) * scale_;
-                DrawRoundCapEnd(static_cast<DWORD*>(scratchBits_), scratchWidth_, scale_,
+                DrawRoundCapEnd(static_cast<DWORD*>(pool.ScratchBits()),
+                                pool.ScratchWidth(), scale_,
                                 centerX, centerY, outX, outY,
                                 radiusHi, offsetX, offsetY, hiWidth, hiHeight);
             }
         }
     }
 
-    SelectObject(scratchDC_, oldPen);
+    SelectObject(scratchDC, oldPen);
     if (brush) {
-        SelectObject(scratchDC_, oldBrush);
+        SelectObject(scratchDC, oldBrush);
     }
     if (pen && !penIsCached) {
         DeleteObject(penHandle);
@@ -561,9 +442,14 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
 
     if (!EnsureReadBack(width, height)) return false;
 
-    const DWORD* scratch = static_cast<const DWORD*>(scratchBits_);
-    DWORD* readBack = static_cast<DWORD*>(readBackBits_);
-    const DWORD maskDword = DwordFromColor(kMaskColor);
+    // What this shape uses of the shared read-back buffer.
+    usedReadBackWidth_ = std::max(usedReadBackWidth_, (width + 63) & ~63);
+    usedReadBackHeight_ = std::max(usedReadBackHeight_, (height + 63) & ~63);
+
+    const int readBackWidth = pool.ReadBackWidth();
+    const DWORD* scratch = scratchBits;
+    DWORD* readBack = static_cast<DWORD*>(pool.ReadBackBits());
+    const DWORD maskDword = DwordFromColor(kAaMaskColor);
     const Color& shape = pen ? pen->color : brush->color;
     const int red = shape.r;
     const int green = shape.g;
@@ -571,14 +457,14 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
 
     for (int y = 0; y < height; ++y) {
         const DWORD* scratchRow =
-            scratch + static_cast<size_t>(y) * scale_ * scratchWidth_;
-        DWORD* readBackRow = readBack + static_cast<size_t>(y) * readBackWidth_;
+            scratch + static_cast<size_t>(y) * scale_ * scratchWidth;
+        DWORD* readBackRow = readBack + static_cast<size_t>(y) * readBackWidth;
 
         for (int x = 0; x < width; ++x) {
             int covered = 0;
             for (int j = 0; j < scale_; ++j) {
                 const DWORD* row =
-                    scratchRow + static_cast<size_t>(j) * scratchWidth_;
+                    scratchRow + static_cast<size_t>(j) * scratchWidth;
                 for (int i = 0; i < scale_; ++i) {
                     if ((row[x * scale_ + i] & 0x00FFFFFF) == maskDword) {
                         ++covered;
@@ -616,7 +502,7 @@ bool GdiAntialias::RenderTile(HDC dc, const AaPoint* points,
     // AlphaFormat has to be AC_SRC_ALPHA - any other value makes
     // AlphaBlend fail with ERROR_INVALID_PARAMETER.
     const BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-    const BOOL ab = AlphaBlend(dc, left, top, width, height, readBackDC_, 0, 0,
+    const BOOL ab = AlphaBlend(dc, left, top, width, height, pool.ReadBackDC(), 0, 0,
                                width, height, blend);
     return ab != 0;
 }

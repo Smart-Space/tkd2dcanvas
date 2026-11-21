@@ -64,12 +64,11 @@ public:
     // tile, so the extra work is linear in the area of the shape.
     static constexpr int kMaxTiles = 256;
 
-    // How much memory the off-screen buffers may keep between two shapes.
-    // A single big shape needs a big buffer, but there is no reason to hold
-    // on to it: the buffers would otherwise grow to the biggest shape that
-    // was ever drawn and stay that big for the whole life of the widget.
-    static constexpr long long kRetainSamples = 4LL * 1024 * 1024;
-    static constexpr long long kRetainPixels = 1024LL * 1024;
+    // The off-screen buffers themselves are not owned by the engine: they
+    // live in a pool that the whole process shares (see GdiScratchPool.h),
+    // exactly like Tk does it on its side (tk/win/tkWinAA.c).  What the
+    // engine remembers is how much of the pool's buffers the last shape
+    // used - that is what the memory budget is about.
 
     GdiAntialias();
     ~GdiAntialias();
@@ -93,9 +92,14 @@ public:
     // different tile sizes - the pixels must not change.
     void SetScratchBudget(long long bytes);
 
-    // Size of the off-screen buffers the engine currently holds (bytes).
-    // This is what the memory of a canvas widget is made of.
+    // Size of the off-screen buffers the engine uses (bytes).  This is what
+    // the memory of a canvas widget is made of.
     long long ScratchBytes() const;
+
+    // Size of the off-screen buffers the whole process uses (bytes).  The
+    // buffers are shared, so this does not grow with the number of canvas
+    // widgets.
+    static long long SharedScratchBytes();
 
     // Fills the closed polygon with `color`, with smooth edges.
     bool FillPolygon(HDC dc, const AaPoint* points, int count, const Color& color);
@@ -133,28 +137,16 @@ private:
     bool EnsureReadBack(int width, int height);
     // Gives back buffers that grew beyond the retention limits.
     void TrimBuffers();
-    void ReleaseBuffers();
-
-    // The pen used to stroke a shape in the scratch buffer.  Pens are
-    // cached: creating one per shape would churn GDI objects, and GDI's
-    // handle table grows with the churn.
-    HPEN MaskPen(int widthHi, DWORD capStyle, DWORD joinStyle);
 
     int scale_ = kDefaultScale;
     long long scratchBudget_ = kScratchBudgetBytes;
 
-    // The brush used to fill a shape in the scratch buffer.  It always has
-    // the mask color, so a single brush serves every shape.
-    HBRUSH maskBrush_ = nullptr;
-
-    // Cached pens for the scratch buffer.
-    struct CachedPen {
-        int widthHi;
-        DWORD capStyle;
-        DWORD joinStyle;
-        HPEN pen;
-    };
-    std::vector<CachedPen> penCache_;
+    // How much of the shared buffers the last shape used.  The buffers
+    // themselves belong to the pool, so this is the engine's own footprint.
+    int usedScratchWidth_ = 0;   // in samples
+    int usedScratchHeight_ = 0;
+    int usedReadBackWidth_ = 0;
+    int usedReadBackHeight_ = 0;
 
     // Scratch buffers for the point lists.  They are reused between shapes:
     // allocating them per shape would make the C runtime heap grow (it
@@ -165,21 +157,6 @@ private:
 
     // Scratch buffer for the dash pattern of a dashed pen.
     std::vector<DWORD> dashes_;
-
-    // Off-screen buffer the shape is drawn into (scale times the device
-    // resolution), 32 bit, top-down.
-    HDC scratchDC_ = nullptr;
-    HBITMAP scratchBitmap_ = nullptr;
-    void* scratchBits_ = nullptr;
-    int scratchWidth_ = 0;   // in samples
-    int scratchHeight_ = 0;
-
-    // Copy of the destination region that is modified (device resolution).
-    HDC readBackDC_ = nullptr;
-    HBITMAP readBackBitmap_ = nullptr;
-    void* readBackBits_ = nullptr;
-    int readBackWidth_ = 0;
-    int readBackHeight_ = 0;
 };
 
 }  // namespace tkd2dcanvas

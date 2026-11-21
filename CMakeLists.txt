@@ -38,6 +38,7 @@ set(TKG_CORE_SOURCES
 set(TKG_RENDER_SOURCES
     native/render/D2DRenderer.cpp
     native/render/D2DContext.cpp
+    native/render/D2DTargetPool.cpp
     native/render/PenCache.cpp
     native/render/BrushCache.cpp
     native/render/FontCache.cpp
@@ -92,6 +93,8 @@ add_library(tkd2dcanvas SHARED
     native/render/DashConverter.cpp
     native/render/GdiRenderer.cpp
     native/render/GdiAntialias.cpp
+    native/render/GdiScratchPool.cpp
+    native/render/D2DTargetPool.cpp
 
     native/platform_win/Win32Surface.cpp
     native/platform_win/Win32ChildWindow.cpp

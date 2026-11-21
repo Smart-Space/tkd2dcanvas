@@ -29,7 +29,7 @@ $batContent = @"
 @echo off
 call "$vcvars" >nul 2>&1
 cd /d "$root"
-cl /nologo /W3 /O2 /EHsc /std:c++17 /utf-8 /DNOMINMAX /DUNICODE /D_UNICODE /I "$root\native\include" /I "$root\native\render" /Fo"$objDir\\" /Fe"$objDir\aa_mem_probe.exe" "$PSScriptRoot\aa_mem_probe.cpp" "$root\native\render\GdiAntialias.cpp" /link gdi32.lib user32.lib msimg32.lib psapi.lib
+cl /nologo /W3 /O2 /EHsc /std:c++17 /utf-8 /DNOMINMAX /DUNICODE /D_UNICODE /I "$root\native\include" /I "$root\native\render" /Fo"$objDir\\" /Fe"$objDir\aa_mem_probe.exe" "$PSScriptRoot\aa_mem_probe.cpp" "$root\native\render\GdiAntialias.cpp" "$root\native\render\GdiScratchPool.cpp" /link gdi32.lib user32.lib msimg32.lib psapi.lib
 exit /b %ERRORLEVEL%
 "@
 Set-Content -Path $bat -Value $batContent -Encoding ASCII

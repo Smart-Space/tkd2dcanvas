@@ -412,10 +412,9 @@ GDI 后端每个图元都要"超采样 → 降采样 → AlphaBlend"，比 D2D �
   约 20% 来自文字区（x 170–300），其余是图形区——这部分是覆盖率量化
   和逐图元接缝造成的。
 * 虚线/stipple 不随超采样放大；超大图元回退到普通 GDI（无抗锯齿）。
-* **离屏缓冲是每个画布控件一份**（每个控件有自己的渲染器）。分块之后
-  每份最多 1 MB（默认预算），但控件多的时候总量仍然是"控件数 × 1 MB"。
-  真要再压，就得把缓冲改成进程级共享（像 Tk 侧的 `tkWinAA.c` 那样用
-  线程局部状态），或者改成解析覆盖率（D2D 的做法，不用暂存缓冲）。
+* ~~**离屏缓冲是每个画布控件一份**~~ → 8.12 节：离屏缓冲已经改成
+  **进程级共享**（照 Tk 的 `tkWinAA.c` 那样），整个进程一份，而不是
+  "控件数 × 1 MB"。
 
 ### 8.10 滚动时的内存增长：根因与修法
 
@@ -563,6 +562,12 @@ powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_edge_probe.ps1 -R
 
 # 像素对齐矩形：抗锯齿引擎 vs FillRect 的等价性（快路径的正确性依据）
 powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_rect_equiv.ps1 -Run
+
+# 离屏缓冲是进程级共享的（GDI 后端）
+powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_aa_shared_probe.ps1 -Run
+
+# 渲染目标是进程级共享的（D2D 后端）
+powershell -ExecutionPolicy Bypass -File tests\gdi_aa\build_d2d_shared_probe.ps1 -Run
 
 # 两个后端逐像素对比（普通场景 / 滚动后的场景）
 python tests\gdi_aa\compare_backends.py

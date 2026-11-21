@@ -6,17 +6,28 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
 
 #include "D2DContext.h"
+#include "D2DTargetPool.h"
 #include "FontCache.h"
 #include "PenCache.h"
 #include "Utf16.h"
 #include "tkd2dcanvas/Anchor.h"
 #include "tkd2dcanvas/StrokeAlign.h"
+
+namespace {
+
+// The render target and the brush are shared by the whole process (see
+// D2DTargetPool.h); the pool's lock is held while a frame is open.
+ID2D1RenderTarget* SharedTarget() { return D2DTargetPool::Instance().Target(); }
+ID2D1SolidColorBrush* SharedBrush() { return D2DTargetPool::Instance().Brush(); }
+
+}  // namespace
 
 struct CachedBitmap {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
@@ -26,25 +37,43 @@ struct CachedBitmap {
 
 // Concrete Direct2D state. Kept out of the header so <d2d1.h> does not leak.
 struct D2DRendererImpl {
-    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> rt;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+    // Every renderer gets a number of its own: the shared render target
+    // remembers which widget it is bound to, so that the binding of a
+    // widget that is gone is dropped.
+    unsigned ownerId = 0;
     HDC dc = nullptr;
     int width = 0;
     int height = 0;
     bool frameOpen = false;
-    HDC boundDc = nullptr;  // HDC/rect the render target is currently bound to
-    int boundWidth = 0;
-    int boundHeight = 0;
+    // The render target itself lives in the pool, which the whole process
+    // shares (D2DTargetPool.h).  The guard holds the pool while the frame
+    // is open: the target may only be used by one widget at a time.
+    std::unique_ptr<D2DTargetPool::Guard> lock;
     int clipDepth = 0;  // number of active axis-aligned clips (nested = intersected)
     std::vector<D2D1_MATRIX_3X2_F> transformStack;  // world transforms saved by pushTranslate
+    // Generation of the shared render target the bitmaps below belong to.
+    // It changes when the target is recreated (device lost), and then the
+    // bitmaps have to go.
+    unsigned cacheGeneration = 0;
     // Bitmaps created from raw RGBA pixels (Tk photo / XBM items), keyed by
     // (cacheKey << 32) | generation. Bounded; entries are simply dropped
     // when the map grows past the limit and rebuilt on demand.
     std::unordered_map<std::uint64_t, CachedBitmap> bitmapCache;
 };
 
-D2DRenderer::D2DRenderer() : impl_(std::make_unique<D2DRendererImpl>()) {}
-D2DRenderer::~D2DRenderer() { Detach(); }
+D2DRenderer::D2DRenderer() : impl_(std::make_unique<D2DRendererImpl>()) {
+    // The owner id has to be unique for every renderer of the process: it
+    // tells the shared render target which widget it is bound to.
+    static std::atomic<unsigned> nextOwnerId{0};
+    impl_->ownerId = ++nextOwnerId;
+}
+
+D2DRenderer::~D2DRenderer() {
+    Detach();
+    // The back buffer of the widget may be destroyed right after this, so
+    // the shared target must not keep a reference to it.
+    D2DTargetPool::Instance().Unbind(impl_->ownerId);
+}
 
 // ---------------------------------------------------------------------------
 // Binding / frame lifecycle
@@ -52,112 +81,106 @@ D2DRenderer::~D2DRenderer() { Detach(); }
 
 bool D2DRenderer::AttachToHdc(void* hdc, int width, int height) {
     if (!hdc || width <= 0 || height <= 0) return false;
-    if (!D2DContext::EnsureInitialized()) {
+
+    D2DTargetPool& pool = D2DTargetPool::Instance();
+
+    // The pool is locked for the whole frame: the render target is shared
+    // by all canvas widgets of the process.
+    impl_->lock.reset();
+    impl_->lock = std::make_unique<D2DTargetPool::Guard>();
+
+    if (!pool.EnsureTarget()) {
+        impl_->lock.reset();
         return false;
     }
 
-    const HDC dc = static_cast<HDC>(hdc);
-
-    // Recreate the render target if the DC or size changed.
-    if (impl_->rt && (impl_->dc != dc || impl_->width != width || impl_->height != height)) {
-        Detach();
+    // The bitmaps of the cache belong to the render target: when the target
+    // was recreated, they are not valid any more.
+    if (impl_->cacheGeneration != pool.Generation()) {
+        impl_->bitmapCache.clear();
+        impl_->cacheGeneration = pool.Generation();
     }
 
-    if (!impl_->rt) {
-        // Render in pixel space: 1 D2D unit = 1 back-buffer pixel, matching
-        // Tk's logical-pixel coordinates (and the RECT passed to BindDC).
-        // Using GetDesktopDpi() here would scale everything by the display's
-        // scale factor (e.g. 2x) and clip content to the top-left quarter of
-        // the buffer. Per-monitor DPI handling is deferred to Win32Dpi.
-        const FLOAT dpiX = 96.0f, dpiY = 96.0f;
-
-        const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_DEFAULT,   // hardware, transparent WARP fallback
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-            dpiX, dpiY);
-
-        HRESULT hr = D2DContext::Factory()->CreateDCRenderTarget(&props, &impl_->rt);
-        if (FAILED(hr)) {
-            // Explicit software fallback for machines without usable D3D.
-            const D2D1_RENDER_TARGET_PROPERTIES swProps = D2D1::RenderTargetProperties(
-                D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-                dpiX, dpiY);
-            hr = D2DContext::Factory()->CreateDCRenderTarget(&swProps, &impl_->rt);
-            if (FAILED(hr)) {
-                impl_->rt.Reset();
-                return false;
-            }
-        }
-        impl_->rt->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        impl_->rt->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+    const HDC dc = static_cast<HDC>(hdc);
+    if (!pool.Bind(dc, width, height, impl_->ownerId)) {
+        impl_->lock.reset();
+        return false;
     }
 
     impl_->dc = dc;
     impl_->width = width;
     impl_->height = height;
 
-    if (impl_->boundDc != dc || impl_->boundWidth != width ||
-        impl_->boundHeight != height) {
-        const RECT rc{0, 0, width, height};
-        HRESULT hr = impl_->rt->BindDC(dc, &rc);
-        if (FAILED(hr)) {
-            return false;
-        }
-        impl_->boundDc = dc;
-        impl_->boundWidth = width;
-        impl_->boundHeight = height;
-    }
-
     EnsureBrush();
 
-    impl_->rt->BeginDraw();
+    pool.Target()->BeginDraw();
     impl_->frameOpen = true;
     return true;
 }
 
 void D2DRenderer::Detach() {
-    if (!impl_->rt) return;
+    D2DTargetPool& pool = D2DTargetPool::Instance();
 
-    if (impl_->frameOpen) {
-        const HRESULT hr = impl_->rt->EndDraw();
+    if (pool.Target() && impl_->frameOpen) {
+        // The clip stack and the transform belong to the render target, and
+        // the render target is shared by all canvas widgets: they have to
+        // be restored before the frame ends, otherwise they would still be
+        // in effect for the next widget that paints.
+        while (impl_->clipDepth > 0) {
+            pool.Target()->PopAxisAlignedClip();
+            --impl_->clipDepth;
+        }
+        pool.Target()->SetTransform(D2D1::Matrix3x2F::Identity());
+        impl_->transformStack.clear();
+
+        const HRESULT hr = pool.Target()->EndDraw();
         impl_->frameOpen = false;
         if (hr == D2DERR_RECREATE_TARGET) {
-            // Device lost: drop the render target; next AttachToHdc recreates it.
-            impl_->brush.Reset();
+            // Device lost: drop the render target; the next AttachToHdc
+            // recreates it.
+            pool.HandleDeviceLost();
             impl_->bitmapCache.clear();
-            impl_->rt.Reset();
-            impl_->boundDc = nullptr;
-            impl_->boundWidth = 0;
-            impl_->boundHeight = 0;
         }
+    } else {
+        impl_->clipDepth = 0;
+        impl_->transformStack.clear();
     }
 
     impl_->dc = nullptr;
-    while (impl_->clipDepth > 0) {
-        impl_->rt->PopAxisAlignedClip();
-        --impl_->clipDepth;
-    }
-    impl_->transformStack.clear();
+
+    // The binding is kept: the next paint of this widget uses the same DC
+    // and does not have to bind the target again.  The renderer releases it
+    // when it goes away (see the destructor) or when the back buffer of
+    // the widget was replaced (see ResetBinding).
+    impl_->lock.reset();
 }
 
 void D2DRenderer::ResetBinding() {
-    if (impl_->frameOpen && impl_->rt) {
-        if (impl_->rt->EndDraw() == D2DERR_RECREATE_TARGET) {
-            impl_->brush.Reset();
+    D2DTargetPool& pool = D2DTargetPool::Instance();
+
+    if (pool.Target() && impl_->frameOpen) {
+        while (impl_->clipDepth > 0) {
+            pool.Target()->PopAxisAlignedClip();
+            --impl_->clipDepth;
+        }
+        pool.Target()->SetTransform(D2D1::Matrix3x2F::Identity());
+        impl_->transformStack.clear();
+
+        if (pool.Target()->EndDraw() == D2DERR_RECREATE_TARGET) {
+            pool.HandleDeviceLost();
             impl_->bitmapCache.clear();
-            impl_->rt.Reset();
         }
         impl_->frameOpen = false;
     }
-    impl_->boundDc = nullptr;
-    impl_->boundWidth = 0;
-    impl_->boundHeight = 0;
+    impl_->clipDepth = 0;
+    impl_->transformStack.clear();
+    // The back buffer was replaced: the shared target has to be bound to
+    // the new one before the next frame.
+    pool.Unbind(impl_->ownerId);
 }
 
 void D2DRenderer::EnsureBrush() {
-    if (impl_->brush || !impl_->rt) return;
-    impl_->rt->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f), &impl_->brush);
+    D2DTargetPool::Instance().Brush();
 }
 
 namespace {
@@ -186,8 +209,8 @@ D2D1::Matrix3x2F Compose3x2(const D2D1_MATRIX_3X2_F& A,
 }  // namespace
 
 void D2DRenderer::clear(const Color& color) {
-    if (!impl_->rt || !impl_->frameOpen) return;
-    impl_->rt->Clear(ToD2DColor(color));
+    if (!SharedTarget() || !impl_->frameOpen) return;
+    SharedTarget()->Clear(ToD2DColor(color));
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +241,7 @@ void D2DRenderer::BuildGeometry(const Path& path, ID2D1PathGeometry* geometry) c
 // ---------------------------------------------------------------------------
 
 void D2DRenderer::drawLine(const Path& path, const PenStyle& pen) {
-    if (!impl_->rt || !impl_->frameOpen || path.Size() < 2 || !impl_->brush) return;
+    if (!SharedTarget() || !impl_->frameOpen || path.Size() < 2 || !SharedBrush()) return;
 
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
     if (FAILED(D2DContext::Factory()->CreatePathGeometry(&geometry))) return;
@@ -235,20 +258,20 @@ void D2DRenderer::drawLine(const Path& path, const PenStyle& pen) {
 
     auto stroke = PenCache::Instance().GetStrokeStyle(D2DContext::Factory(), pen);
 
-    impl_->brush->SetColor(ToD2DColor(pen.color));
-    impl_->rt->DrawGeometry(geometry.Get(), impl_->brush.Get(),
+    SharedBrush()->SetColor(ToD2DColor(pen.color));
+    SharedTarget()->DrawGeometry(geometry.Get(), SharedBrush(),
                             static_cast<FLOAT>(pen.width), stroke.Get());
 }
 
 void D2DRenderer::fillPath(const Path& path, const BrushStyle& brush) {
-    if (!impl_->rt || !impl_->frameOpen || path.Size() < 3 || !impl_->brush) return;
+    if (!SharedTarget() || !impl_->frameOpen || path.Size() < 3 || !SharedBrush()) return;
 
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
     if (FAILED(D2DContext::Factory()->CreatePathGeometry(&geometry))) return;
     BuildGeometry(path, geometry.Get());
 
-    impl_->brush->SetColor(ToD2DColor(brush.color));
-    impl_->rt->FillGeometry(geometry.Get(), impl_->brush.Get());
+    SharedBrush()->SetColor(ToD2DColor(brush.color));
+    SharedTarget()->FillGeometry(geometry.Get(), SharedBrush());
 }
 
 void D2DRenderer::drawPath(const Path& path, const PenStyle& pen, const BrushStyle* brush) {
@@ -261,7 +284,7 @@ void D2DRenderer::drawPath(const Path& path, const PenStyle& pen, const BrushSty
 // ---------------------------------------------------------------------------
 
 void D2DRenderer::drawText(const TextLayout& layout, const TextStyle& style) {
-    if (!impl_->rt || !impl_->frameOpen || !impl_->brush || layout.lines.empty()) return;
+    if (!SharedTarget() || !impl_->frameOpen || !SharedBrush() || layout.lines.empty()) return;
     IDWriteFactory* writeFactory = D2DContext::WriteFactory();
     if (!writeFactory) return;
 
@@ -308,7 +331,7 @@ void D2DRenderer::drawText(const TextLayout& layout, const TextStyle& style) {
 
     const std::string justify = layout.justify.empty() ? "left" : layout.justify;
 
-    impl_->brush->SetColor(ToD2DColor(style.color));
+    SharedBrush()->SetColor(ToD2DColor(style.color));
 
     const double angle = layout.angle;
     const std::string anchor = layout.anchor.empty() ? "nw" : layout.anchor;
@@ -326,14 +349,14 @@ void D2DRenderer::drawText(const TextLayout& layout, const TextStyle& style) {
         const double ox = layout.origin.x + offsetX * cosA + offsetY * sinA;
         const double oy = layout.origin.y + offsetY * cosA - offsetX * sinA;
 
-        impl_->rt->GetTransform(&savedTransform);
+        SharedTarget()->GetTransform(&savedTransform);
         const D2D1::Matrix3x2F rot(cosA, -sinA, sinA, cosA, 0.0f, 0.0f);
         const D2D1::Matrix3x2F worldWithOrigin = Compose3x2(
             D2D1::Matrix3x2F::Translation(static_cast<FLOAT>(ox),
                                           static_cast<FLOAT>(oy)),
             savedTransform);
         const D2D1::Matrix3x2F composed = Compose3x2(rot, worldWithOrigin);
-        impl_->rt->SetTransform(composed);
+        SharedTarget()->SetTransform(composed);
 
         topLeft = Point{0.0, 0.0};
     }
@@ -360,13 +383,13 @@ void D2DRenderer::drawText(const TextLayout& layout, const TextStyle& style) {
 
         const double x = topLeft.x + JustifyOffset(justify, blockWidth, lineWidths[lineIndex]);
         const float y = static_cast<FLOAT>(topLeft.y) + lineHeight * static_cast<FLOAT>(lineIndex);
-        impl_->rt->DrawTextLayout(D2D1::Point2F(static_cast<FLOAT>(x), y), textLayout.Get(),
-                                  impl_->brush.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+        SharedTarget()->DrawTextLayout(D2D1::Point2F(static_cast<FLOAT>(x), y), textLayout.Get(),
+                                  SharedBrush(), D2D1_DRAW_TEXT_OPTIONS_NONE);
         ++lineIndex;
     }
 
     if (angle != 0.0) {
-        impl_->rt->SetTransform(savedTransform);
+        SharedTarget()->SetTransform(savedTransform);
     }
 }
 
@@ -375,7 +398,7 @@ void D2DRenderer::drawText(const TextLayout& layout, const TextStyle& style) {
 // ---------------------------------------------------------------------------
 
 void D2DRenderer::drawImage(const ImageRef& image, const Transform2D& transform) {
-    if (!impl_->rt || !impl_->frameOpen) return;
+    if (!SharedTarget() || !impl_->frameOpen) return;
 
     ID2D1Bitmap* bitmap = nullptr;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> owned;  // holds a one-shot bitmap for this call
@@ -425,7 +448,7 @@ void D2DRenderer::drawImage(const ImageRef& image, const Transform2D& transform)
             const D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
                 D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96.0f, 96.0f);
             CachedBitmap entry;
-            HRESULT hr = impl_->rt->CreateBitmap(
+            HRESULT hr = SharedTarget()->CreateBitmap(
                 D2D1::SizeU(static_cast<UINT32>(image.width), static_cast<UINT32>(image.height)),
                 premul.data(), static_cast<UINT32>(rowBytes),
                 props, &entry.bitmap);
@@ -451,18 +474,18 @@ void D2DRenderer::drawImage(const ImageRef& image, const Transform2D& transform)
     transform.Coefficients(a, b, c, d, e, f);
 
     D2D1_MATRIX_3X2_F previous{};
-    impl_->rt->GetTransform(&previous);
+    SharedTarget()->GetTransform(&previous);
     const D2D1::Matrix3x2F composed = Compose3x2(
         D2D1::Matrix3x2F(static_cast<FLOAT>(a), static_cast<FLOAT>(b),
                          static_cast<FLOAT>(c), static_cast<FLOAT>(d),
                          static_cast<FLOAT>(e), static_cast<FLOAT>(f)),
         previous);
-    impl_->rt->SetTransform(composed);
-    impl_->rt->DrawBitmap(bitmap,
+    SharedTarget()->SetTransform(composed);
+    SharedTarget()->DrawBitmap(bitmap,
                           D2D1::RectF(0.0f, 0.0f,
                                       static_cast<FLOAT>(image.width),
                                       static_cast<FLOAT>(image.height)));
-    impl_->rt->SetTransform(previous);
+    SharedTarget()->SetTransform(previous);
 }
 
 // ---------------------------------------------------------------------------
@@ -470,29 +493,29 @@ void D2DRenderer::drawImage(const ImageRef& image, const Transform2D& transform)
 // ---------------------------------------------------------------------------
 
 void D2DRenderer::pushClip(const BBox& box) {
-    if (!impl_->rt || !impl_->frameOpen || !box.IsValid()) return;
+    if (!SharedTarget() || !impl_->frameOpen || !box.IsValid()) return;
 
     const D2D1_RECT_F rect{
         static_cast<FLOAT>(box.left), static_cast<FLOAT>(box.top),
         static_cast<FLOAT>(box.right), static_cast<FLOAT>(box.bottom)};
     // Nested axis-aligned clips intersect in D2D.
-    impl_->rt->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    SharedTarget()->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     ++impl_->clipDepth;
 }
 
 void D2DRenderer::popClip() {
-    if (!impl_->rt || !impl_->frameOpen) return;
+    if (!SharedTarget() || !impl_->frameOpen) return;
     if (impl_->clipDepth <= 0) return;
 
-    impl_->rt->PopAxisAlignedClip();
+    SharedTarget()->PopAxisAlignedClip();
     --impl_->clipDepth;
 }
 
 void D2DRenderer::pushTranslate(double dx, double dy) {
-    if (!impl_->rt || !impl_->frameOpen) return;
+    if (!SharedTarget() || !impl_->frameOpen) return;
 
     D2D1_MATRIX_3X2_F previous{};
-    impl_->rt->GetTransform(&previous);
+    SharedTarget()->GetTransform(&previous);
     impl_->transformStack.push_back(previous);
     // The new translation applies in *inner* coordinates, so it multiplies
     // on the left of the current transform: v' = (v*T)*previous.
@@ -500,14 +523,14 @@ void D2DRenderer::pushTranslate(double dx, double dy) {
         D2D1::Matrix3x2F::Translation(static_cast<FLOAT>(dx),
                                       static_cast<FLOAT>(dy)),
         previous);
-    impl_->rt->SetTransform(composed);
+    SharedTarget()->SetTransform(composed);
 }
 
 void D2DRenderer::popTranslate() {
-    if (!impl_->rt || !impl_->frameOpen) return;
+    if (!SharedTarget() || !impl_->frameOpen) return;
     if (impl_->transformStack.empty()) return;
 
     D2D1_MATRIX_3X2_F previous = impl_->transformStack.back();
     impl_->transformStack.pop_back();
-    impl_->rt->SetTransform(previous);
+    SharedTarget()->SetTransform(previous);
 }

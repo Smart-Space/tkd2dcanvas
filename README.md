@@ -2,12 +2,12 @@
 
 在 Windows 上实现的 Canvas（面向 Tcl/Tk 与 Python tkinter）。
 
-> 提供**两个渲染后端**，编译进同一个 DLL，用 `-renderer` 选项选择：
+> 提供**两个渲染后端**，同一个 DLL，用 `-renderer` 选项选择：
 >
-> | 后端 | 抗锯齿来源 | 说明 |
-> | --- | --- | --- |
-> | `d2d`（默认） | Direct2D 自带 | `PER_PRIMITIVE` 解析覆盖率，边缘最平滑 |
-> | `gdi` | 本仓库自己的超采样引擎 | 不用 Direct2D 画图元，边缘由超采样算 |
+> | 后端 | 抗锯齿来源 |
+> | --- | --- |
+> | `d2d`（默认） | Direct2D 自带 |
+> | `gdi` | 本仓库自己的超采样引擎 |
 >
 > 两个后端都在同一个 `tkd2dcanvas01.dll` 里。`d2d` 运行时依赖 Windows 7 SP1+ 自带的 `d2d1.dll` / `dwrite.dll`，无需捆绑。详见 [docs/gdi_antialias.md](docs/gdi_antialias.md)。
 >
@@ -32,7 +32,7 @@ root.tk.call(pathName, "create", "rectangle", ...)
 
 ## 两个渲染后端
 
-两个后端在**同一个 DLL**（`tkd2dcanvas01.dll`）里，靠 `-renderer` 选项在 **创建时**选择走哪条渲染路径 —— 不需要单独的构建产物。
+两个后端在**同一个 DLL**（`tkd2dcanvas01.dll`）里，靠 `-renderer` 选项在**创建时**选择走哪条渲染路径。
 
 ### Python
 
@@ -63,31 +63,14 @@ tkd2dcanvas .c -width 800 -height 600 -renderer gdi
 
 `-renderer` **只能在创建时指定**：渲染器在控件附着到窗口时创建，之后改这个选项不会切换后端（要换请新建控件）。
 
-### 怎么选
-
-| | `d2d` | `gdi` |
-| --- | --- | --- |
-| 边缘质量 | 解析覆盖率（256 级灰阶） | 超采样量化（4 倍 = 17 级灰阶），斜边有轻微台阶 |
-| 文字 | DirectWrite ClearType | GDI `ExtTextOutW` ClearType，排版细节与 D2D 不同 |
-| 画图元用什么 | Direct2D | 只有 GDI（`gdi32`）+ 自己的超采样引擎 |
-| 适合 | 常规 UI | 不想用 Direct2D 画图元、或要排查 D2D 自身问题时 |
-
-两个后端共用同一套场景图、item 语义、脏矩形重绘和滚动路径 —— 差别只在 "怎么把像素画出来"。
-
 ### 看图
 
-同一个场景，三种画法。**上面是 1:1 的完整画面，下面是同一块区域的放大**（左边 45° 斜边，右边圆弧）：
+上面是 1:1 的完整画面，下面是同一块区域的放大（左边 45° 斜边，右边圆弧）：
 
-| 原生 Tk 画布 | GDI（手动抗锯齿） | Direct2D |
+| 原生画布（DPI适配） | GDI（手动抗锯齿） | Direct2D |
 | --- | --- | --- |
 | ![原生 Tk 画布：GDI 光栅化，边缘是硬阶梯](docs/images/aa-native.png) | ![GDI 后端：覆盖率由本仓库的超采样引擎算](docs/images/aa-gdi.png) | ![Direct2D 后端：PER_PRIMITIVE 解析覆盖率](docs/images/aa-d2d.png) |
-| 边缘是硬阶梯（放大后能数出台阶） | 边缘是连续的灰度过渡 | 边缘是连续的灰度过渡，与 GDI 基本一致 |
-
-> 原生 Tk 画布（`tkinter.Canvas`）在 Windows 上也是用 GDI 画的，
-> 而 GDI **本身没有抗锯齿** —— 所以斜边和圆弧都是一级级的台阶。
-> `gdi` 后端把这个能力自己补上了；`d2d` 后端直接用 Direct2D 的
-> `PER_PRIMITIVE`，覆盖率是解析算出来的（256 级灰阶），
-> 比 4 倍超采样（17 级）更细腻。
+| 边缘是硬阶梯 | 边缘是连续的灰度过渡 | 边缘是连续的灰度过渡 |
 
 ### 实测
 
