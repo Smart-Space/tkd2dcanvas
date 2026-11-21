@@ -229,7 +229,7 @@ tkd2dcanvas .c -width 400 -height 300 -renderer gdi -antialiasfactor 4
 | `-renderer` | `d2d` | `d2d`（Direct2D）或 `gdi`（纯 GDI + 手动抗锯齿） |
 | `-antialiasfactor` | `4` | 超采样倍数 N（有效范围 2…8） |
 
-`-renderer` **只能在创建时指定**（运行时改它不会切换后端，见 8.8）。
+`-renderer` **只能在创建时指定**（运行时改它不会切换后端，见 8.9）。
 
 ### 8.2.1 构建产物在哪
 
@@ -334,7 +334,7 @@ Python 包加载的是 `python/tkd2dcanvas/tcl/tkd2dcanvas/` 下那一份，
 
 边缘的灰度因此是"台阶状"的，而不是连续渐变。实测同一条缓斜线：
 4 倍有 15 个灰阶，8 倍有 41 个。**这就是最直接的"画面割裂"来源**，
-调 `-antialiasfactor 8` 能明显改善（代价见 8.7）。
+调 `-antialiasfactor 8` 能明显改善（代价见 8.8）。
 
 **（二）相邻图元之间的接缝。** 每个图元各自独立做抗锯齿、再各自
 source-over 合成。共享边上的两个半覆盖像素各叠一次，背景会漏进来：
