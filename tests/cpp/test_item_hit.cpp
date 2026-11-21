@@ -51,6 +51,15 @@ int main() {
     assert(rect.HitTest(Point{50, 50}, 50.0 - 2.0));
     assert(!rect.HitTest(Point{50, 50}, 50.0 - 3.0));
 
+    // No fill and no outline (-width 0): Tk hits the whole interior.  This is
+    // what TinUI's radiobox uses as its invisible hit rectangle; treating it
+    // as hollow would make its options respond only along the edge.
+    rect.Style().width = 0.0;
+    assert(Near(rect.DistanceTo(Point{50, 50}), 0.0));
+    assert(rect.HitTest(Point{50, 50}, 0.0));
+    assert(rect.HitTest(Point{50, 25}, 0.0));
+    assert(!rect.HitTest(Point{110, 50}, 0.0));
+
     // --- oval ---------------------------------------------------------------
     OvalItem oval(0, 0, 0, 100, 100);
     oval.Style().fill = Color{0, 0, 255};

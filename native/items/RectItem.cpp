@@ -64,9 +64,14 @@ double RectItem::DistanceTo(Point p) const {
         return std::sqrt(dx * dx + dy * dy);
     }
 
-    // Inside: a filled rectangle is hit everywhere, an unfilled one only
-    // near its outline (Tk behaves the same way).
-    if (Style().fill) return 0.0;
+    // Inside: Tk hits the whole interior of a filled rectangle, and also of
+    // one with no outline (Tk only allocates an outline GC when the pen width
+    // is non-zero).  An unfilled rectangle that *does* have an outline is
+    // hollow: only its edge is a hit.  TinUI's radiobox relies on the first
+    // case - it uses an invisible "-fill "" -width 0" rectangle as the sole
+    // hit target for its options, so treating it as hollow makes hover and
+    // clicks work only along the rectangle's edge.
+    if (Style().fill || !TkHasOutlineGC(Style())) return 0.0;
     return std::min(std::min(p.x - box.left, box.right - p.x),
                     std::min(p.y - box.top, box.bottom - p.y));
 }
